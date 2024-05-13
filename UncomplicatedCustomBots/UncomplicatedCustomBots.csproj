@@ -99,12 +99,13 @@
   <ItemGroup>
     <Compile Include="API\Enums\DirectionType.cs" />
     <Compile Include="API\Enums\SkillType.cs" />
-    <Compile Include="API\Extensions\PlayerExtensions.cs" />
     <Compile Include="API\Features\Bot.cs" />
+    <Compile Include="API\Features\Components\BotComponent.cs" />
     <Compile Include="API\Features\Scenario.cs" />
     <Compile Include="API\Features\Scenarios\DClassScenario.cs" />
     <Compile Include="API\Features\State.cs" />
     <Compile Include="API\Features\States\WalkingState.cs" />
+    <Compile Include="API\Interfaces\IWalkState.cs" />
     <Compile Include="Commands\PlayerCommandBase.cs" />
     <Compile Include="Commands\Spawn.cs" />
     <Compile Include="Config.cs" />

@@ -6,13 +6,13 @@ using System.Threading.Tasks;
 
 namespace UncomplicatedCustomBots.API.Enums
 {
+    [Flags]
     public enum DirectionType
     {
         None,
         Left,
         Right,
-        Up,
-        Down,
+        Back,
         Forward
     }
 }

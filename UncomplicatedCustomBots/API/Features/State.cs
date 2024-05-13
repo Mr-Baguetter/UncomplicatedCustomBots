@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Exiled.API.Features;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -8,6 +9,13 @@ namespace UncomplicatedCustomBots.API.Features
 {
     public abstract class State
     {
+        public State(Player player)
+        {
+            Player = player;
+        }
+
+        public Player Player { get; }
+
         public abstract void Enter();
 
         public abstract void Update();
