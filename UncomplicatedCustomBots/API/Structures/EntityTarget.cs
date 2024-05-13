@@ -1,5 +1,6 @@
 ﻿using Exiled.API.Enums;
 using Exiled.API.Features.Core.Interfaces;
+using Exiled.API.Interfaces;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,15 +11,15 @@ using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Structures
 {
-    public readonly struct Target : ITarget
+    public readonly struct EntityTarget : ITarget
     {
-        public Target(IEntity entity)
+        public EntityTarget(IWorldSpace entity)
         {
             Room = new RoomTarget(Vector3.zero, RoomType.Unknown);
             Entity = entity;
         }
 
-        public Target(RoomTarget room)
+        public EntityTarget(RoomTarget room)
         {
             Room = room;
             Entity = null;
@@ -26,6 +27,6 @@ namespace UncomplicatedCustomBots.API.Structures
 
         public RoomTarget Room { get; }
 
-        public IEntity Entity { get; }
+        public IWorldSpace Entity { get; }
     }
 }
