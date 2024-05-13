@@ -20,14 +20,14 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public DirectionType MoveDirections { get; set; }
 
-        public Target Target { get; set; }
+        public ITarget Target { get; set; }
 
         public override void Enter()
         {
             switch (Bot.Scenario.Role)
             {
                 case RoleTypeId.ClassD:
-                    Target = new Target(Exiled.API.Enums.RoomType.Lcz914);
+                    Target = new RoomTarget(Vector3.zero, Exiled.API.Enums.RoomType.Lcz914);
                     break;
             }
         }

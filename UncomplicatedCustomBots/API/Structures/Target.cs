@@ -5,11 +5,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using UncomplicatedCustomBots.API.Interfaces;
 using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Structures
 {
-    public readonly struct Target
+    public readonly struct Target : ITarget
     {
         public Target(IEntity entity)
         {

@@ -105,6 +105,7 @@
     <Compile Include="API\Features\Scenarios\DClassScenario.cs" />
     <Compile Include="API\Features\State.cs" />
     <Compile Include="API\Features\States\WalkingState.cs" />
+    <Compile Include="API\Interfaces\ITarget.cs" />
     <Compile Include="API\Structures\RoomTarget.cs" />
     <Compile Include="API\Structures\Target.cs" />
     <Compile Include="API\Interfaces\IWalkState.cs" />
