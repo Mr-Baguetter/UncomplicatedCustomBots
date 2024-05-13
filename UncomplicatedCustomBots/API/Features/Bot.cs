@@ -25,7 +25,7 @@ namespace UncomplicatedCustomBots.API.Features
 
         public void ChangeRole(RoleTypeId roleTypeId)
         {
-            _scenario = Scenario.Create(roleTypeId);
+            Scenario = Scenario.Create(roleTypeId);
         }
 
         public void Move(DirectionType directionType)
@@ -42,6 +42,6 @@ namespace UncomplicatedCustomBots.API.Features
 
         public State State { get; private set; }
 
-        private Scenario _scenario;
+        public Scenario Scenario { get; private set; }
     }
 }

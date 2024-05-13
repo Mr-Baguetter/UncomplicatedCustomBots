@@ -9,12 +9,14 @@ namespace UncomplicatedCustomBots.API.Features
 {
     public abstract class State
     {
-        public State(Player player)
+        public State(Bot bot)
         {
-            Player = player;
+            Bot = bot;
         }
 
-        public Player Player { get; }
+        public Bot Bot { get; }
+
+        public Player Player => Bot.Player;
 
         public abstract void Enter();
 

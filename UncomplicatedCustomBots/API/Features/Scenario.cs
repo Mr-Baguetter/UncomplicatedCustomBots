@@ -10,6 +10,8 @@ namespace UncomplicatedCustomBots.API.Features
 {
     public abstract class Scenario
     {
+        public abstract RoleTypeId Role { get; }
+
         public static Scenario Create(RoleTypeId roleTypeId)
         {
             return roleTypeId switch
