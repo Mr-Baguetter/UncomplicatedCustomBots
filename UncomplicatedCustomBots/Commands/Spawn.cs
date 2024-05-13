@@ -6,7 +6,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Extensions;
+using UncomplicatedCustomBots.API.Features;
 
 namespace UncomplicatedCustomBots.Commands
 {
@@ -22,8 +22,9 @@ namespace UncomplicatedCustomBots.Commands
         public override bool Execute(ArraySegment<string> arguments, Player player, out string response)
         {
             var npc = Npc.Spawn("Test", PlayerRoles.RoleTypeId.Scp049);
+            var bot = new Bot(npc);
+            bot.Start();
 
-            npc.Move(API.Enums.DirectionType.Up);
             response = string.Empty;
             return false;
         }

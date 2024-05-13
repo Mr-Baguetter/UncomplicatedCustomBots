@@ -23,6 +23,11 @@ namespace UncomplicatedCustomBots.API.Features
             Player.GameObject.AddComponent<BotComponent>().Initialize(this);
         }
 
+        public void Start()
+        {
+            State = new WalkingState(this);
+        }
+
         public void ChangeRole(RoleTypeId roleTypeId)
         {
             Scenario = Scenario.Create(roleTypeId);
