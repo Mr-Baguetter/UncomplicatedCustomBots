@@ -107,7 +107,7 @@
     <Compile Include="API\Features\States\WalkingState.cs" />
     <Compile Include="API\Interfaces\ITarget.cs" />
     <Compile Include="API\Structures\RoomTarget.cs" />
-    <Compile Include="API\Structures\Target.cs" />
+    <Compile Include="API\Structures\EntityTarget.cs" />
     <Compile Include="API\Interfaces\IWalkState.cs" />
     <Compile Include="Commands\PlayerCommandBase.cs" />
     <Compile Include="Commands\Spawn.cs" />
