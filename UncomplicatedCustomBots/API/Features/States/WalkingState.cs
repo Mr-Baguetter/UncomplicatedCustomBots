@@ -7,7 +7,6 @@ using System.Text;
 using System.Threading.Tasks;
 using UncomplicatedCustomBots.API.Enums;
 using UncomplicatedCustomBots.API.Interfaces;
-using UncomplicatedCustomBots.API.Structures;
 using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Features.States
@@ -16,11 +15,14 @@ namespace UncomplicatedCustomBots.API.Features.States
     {
         public WalkingState(Bot bot) : base(bot)
         {
+            _way = new();
         }
 
         public DirectionType MoveDirections { get; set; }
 
         public ITarget Target { get; set; }
+
+        private Queue<Room> _way;
 
         public override void Enter()
         {
@@ -30,6 +32,8 @@ namespace UncomplicatedCustomBots.API.Features.States
                     Target = new RoomTarget(Vector3.zero, Exiled.API.Enums.RoomType.Lcz914);
                     break;
             }
+
+            _way = Target.GetWay(Player.CurrentRoom);
         }
 
         public override void Exit()
