@@ -1,16 +1,7 @@
-﻿using Exiled.API.Enums;
-using Exiled.API.Features;
-using Exiled.API.Features.Core.Interfaces;
-using Exiled.API.Interfaces;
-using System;
+﻿using LabApi.Features.Wrappers;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UncomplicatedCustomBots.API.Extensions;
-using UncomplicatedCustomBots.API.Features;
 using UncomplicatedCustomBots.API.Interfaces;
-using UnityEngine;
 
 namespace UncomplicatedCustomBots.API
 {
@@ -23,6 +14,6 @@ namespace UncomplicatedCustomBots.API
 
         public IWorldSpace Entity { get; }
 
-        public Queue<Room> GetWay(Room room) => Room.Get(Entity.Position).GetRoomNode().GetWay(room);
+        public Queue<Room> GetWay(Room room) => Room.GetRoomAtPosition(Entity.Position).GetRoomNode().GetWay(room);
     }
 }

@@ -1,7 +1,11 @@
-﻿using Exiled.API.Features;
+﻿using LabApi.Features.Wrappers;
+using LabApi.Loader.Features.Paths;
+using MEC;
+using NetworkManagerUtils.Dummies;
 using PlayerRoles;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -9,39 +13,108 @@ using UncomplicatedCustomBots.API.Enums;
 using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Features.States;
 using UncomplicatedCustomBots.API.Interfaces;
+using UncomplicatedCustomBots.API.Managers;
+using UncomplicatedCustomBots.Events.Handlers;
+using Unity.Mathematics;
+using UnityEngine;
+using Logger = LabApi.Features.Console.Logger;
 
 namespace UncomplicatedCustomBots.API.Features
 {
     public class Bot
     {
-        public Bot(Player player)
+        public static readonly List<Player> List = [];
+        public static readonly List<Bot> Bots = [];
+        private static readonly System.Random random = new();
+
+        public Bot()
         {
+            string randomName = Plugin.Instance.Config.Names[random.Next(Plugin.Instance.Config.Names.Count)];
+            ReferenceHub hub = DummyUtils.SpawnDummy(randomName);
+            Player player = Player.Get(hub);
+
             Player = player;
 
-            ChangeRole(player.Role.Type);
+            List.Add(player);
+            Bots.Add(this);
+
+            Scenario = Scenario.Create(player.Role);
+
+            ChangeRole(player.Role);
+
+            Player.GameObject.AddComponent<BotComponent>().Initialize(this);
+        }
+
+        public Bot(ReferenceHub hub)
+        {
+            Player player = Player.Get(hub);
+
+            Player = player;
+
+            List.Add(player);
+            Bots.Add(this);
+
+            Scenario = Scenario.Create(player.Role);
+
+            ChangeRole(player.Role);
 
             Player.GameObject.AddComponent<BotComponent>().Initialize(this);
         }
 
         public void Start()
         {
-            State = new WalkingState(this);
-        }
-
-        public void ChangeRole(RoleTypeId roleTypeId)
-        {
-            Scenario = Scenario.Create(roleTypeId);
-        }
-
-        public void Move(DirectionType directionType)
-        {
-            if (State is not IWalkState walkState)
+            if (Player.Role == RoleTypeId.Spectator || Player.Role == RoleTypeId.Destroyed)
             {
+                LogManager.Warn($"Cannot start a bot if it is a Spectator or Destroyed!");
                 return;
             }
 
-            walkState.MoveDirections = directionType;
+            Player.GroupName = string.Empty;
+            State = new WalkingState(this);
+            Timing.CallDelayed(Timing.WaitForOneFrame, () =>
+            {
+                State?.Enter();
+            });
         }
+
+        public void ChangeRole(RoleTypeId roleTypeId) => Scenario = Scenario.Create(roleTypeId);
+
+        public void RemoveGroup(Player player) => player.UserGroup = null;
+
+        public void ChangeState(State newState)
+        {
+            SwitchingStateEventArgs switchingEventArgs = new(State, newState, this, true);
+            Events.Handlers.State.OnStateSwitching(switchingEventArgs);
+            if (switchingEventArgs.IsAllowed)
+            {
+                State?.Exit();
+                State = newState;
+                State?.Enter();
+            }
+            SwitchedStateEventArgs switchedEventArgs = new(State, newState, this);
+            Events.Handlers.State.OnStateSwitched(switchedEventArgs);
+        }
+
+        public void Destroy()
+        {
+            State?.Exit();
+
+            if (Player != null && List.Contains(Player))
+                List.Remove(Player);
+
+            if (Bots.Contains(this))
+                Bots.Remove(this);
+
+            BotComponent botComponent = Player?.GameObject?.GetComponent<BotComponent>();
+            if (botComponent != null)
+                UnityEngine.Object.Destroy(botComponent);
+
+            Navigation navigation = Player?.GameObject?.GetComponent<Navigation>();
+            if (navigation != null)
+                UnityEngine.Object.Destroy(navigation);
+        }
+
+        public void Update() => State?.Update();
 
         public Player Player { get; private set; }
 

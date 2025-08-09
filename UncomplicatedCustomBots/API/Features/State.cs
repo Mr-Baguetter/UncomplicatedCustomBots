@@ -1,4 +1,4 @@
-﻿using Exiled.API.Features;
+﻿using LabApi.Features.Wrappers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,5 +23,9 @@ namespace UncomplicatedCustomBots.API.Features
         public abstract void Update();
 
         public abstract void Exit();
+
+        public virtual void OnShot() { }
+
+        public virtual void OnDied() { }
     }
 }

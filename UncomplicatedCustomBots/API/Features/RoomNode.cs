@@ -1,4 +1,4 @@
-﻿using Exiled.API.Features;
+﻿using LabApi.Features.Wrappers;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -40,7 +40,7 @@ namespace UncomplicatedCustomBots.API.Features
 
         public Queue<Room> GetWay(Room room, Queue<Room> result)
         {
-            if (Room.Type == room.Type)
+            if (Room.GameObject.name == room.GameObject.name)
             {
                 result.Enqueue(room);
                 return result;
