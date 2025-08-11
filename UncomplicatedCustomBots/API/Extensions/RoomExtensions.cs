@@ -38,6 +38,16 @@ namespace UncomplicatedCustomBots.API.Extensions
             return roomList[UnityEngine.Random.Range(0, roomList.Count)];
         }
 
+        public static Room GetRandomRoom(List<string> roomBlacklist)
+        {
+            List<Room> roomList = Room.List.Where(r => !roomBlacklist.Contains(r.GameObject.name)).ToList();
+            
+            if (roomList.Count == 0)
+                return null;
+
+            return roomList[UnityEngine.Random.Range(0, roomList.Count)];
+        }
+
         public static bool TryGetRandomRoom(out Room room) => (room = GetRandomRoom()) != null;
 
         public static List<GameObject> GetChildren(this Room room)
@@ -51,16 +61,14 @@ namespace UncomplicatedCustomBots.API.Extensions
 
         public static Bounds GetMapBounds(this Room room)
         {
-            MeshRenderer[] renderers = room.GameObject.GetComponents<MeshRenderer>();
-            if (renderers.Length == 0)
+            MeshRenderer renderer = room.GameObject.GetComponent<MeshRenderer>();
+            
+            if (renderer.bounds == null)
                 return new Bounds(Vector3.zero, Vector3.zero);
-
-            Bounds bounds = renderers[0].bounds;
-            foreach (MeshRenderer renderer in renderers.Skip(1))
-                bounds.Encapsulate(renderer.bounds);
-
-            return bounds;
+                
+            return renderer.bounds;
         }
+
         /// <summary>
         /// Returns the local space position, based on a world space position.
         /// </summary>

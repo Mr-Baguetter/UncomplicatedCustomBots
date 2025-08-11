@@ -25,6 +25,8 @@ namespace UncomplicatedCustomBots.Commands
             Subcommands.Add(new SendRayCast());
             Subcommands.Add(new BotDebug());
             Subcommands.Add(new DebugUI());
+            Subcommands.Add(new RoomChildren());
+            Subcommands.Add(new RoomBounds());
         }
 
         private List<ISubcommand> Subcommands { get; } = [];

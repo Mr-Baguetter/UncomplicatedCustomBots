@@ -15,6 +15,8 @@ using InventorySystem.Items;
 using UncomplicatedCustomBots.API.Managers;
 using PlayerRoles.PlayableScps.Scp3114;
 using UncomplicatedCustomBots.Events.Handlers;
+using MEC;
+using LabApi.Features.Extensions;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
@@ -48,6 +50,15 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             _detectionTimer += Time.deltaTime;
 
+            if (Bot.Player.Role == RoleTypeId.Spectator || Bot.Player.Role == RoleTypeId.Destroyed)
+                return;
+
+            if (Bot.Player.Role == RoleTypeId.Scp096 || Bot.Player.Role == RoleTypeId.Scp079)
+                Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
+
+            if (Bot.Player.Role == RoleTypeId.Scp0492)
+                Bot.ChangeState(new Scp0492State(Bot, Player.ReadyList.Where(p => p.Role == RoleTypeId.Scp049).FirstOrDefault()));
+
             Player scpTarget = DetectScpTarget();
             if (scpTarget != null && Bot.Player.Health < 30)
             {
@@ -63,15 +74,13 @@ namespace UncomplicatedCustomBots.API.Features.States
                     Bot.ChangeState(new CombatState(Bot));
                     return;
                 }
+
                 if (combatTarget != null)
                 {
                     float distance = Vector3.Distance(Bot.Player.Position, combatTarget.Position);
                     bool hasLineOfSight = HasLineOfSight(combatTarget);
                     switch (Bot.Player.Role)
                     {
-                        case RoleTypeId.Scp0492:
-                            Bot.ChangeState(new Scp0492State(Bot, Player.ReadyList.Where(p => p.Role == RoleTypeId.Scp049).FirstOrDefault()));
-                            break;
                         case RoleTypeId.Scp049:
                             if (distance < 15f && hasLineOfSight)
                             {
@@ -108,13 +117,15 @@ namespace UncomplicatedCustomBots.API.Features.States
                                 return;
                             }
                             break;
-                        case RoleTypeId.Scp096:
-                            Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
+                        case RoleTypeId.Scp096: // 096 wont be supported. Really annoying to setup.
+                            Timing.CallDelayed(Timing.WaitForOneFrame, () => Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart));
                             break;
-                        case RoleTypeId.Scp079:
-                            Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
+                        case RoleTypeId.Scp079: // 079 wont be supported. Cant communicate to other SCPs without being overpowered or annoying to other SCPs.
+                            Timing.CallDelayed(Timing.WaitForOneFrame, () => Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart));
                             break;
                         default:
+                            if (Bot.Player.Faction == Faction.SCP)
+                                LogManager.Warn($"{Bot.Player.Nickname} - {Bot.Player.PlayerId} - {Bot.Player.Role.GetFullName()} is not a recognized SCP!");
                             break;
                     }
                 }

@@ -23,8 +23,8 @@ namespace UncomplicatedCustomBots.API.Features
 {
     public class Bot
     {
-        public static readonly List<Player> List = [];
-        public static readonly List<Bot> Bots = [];
+        public static readonly List<Player> PlayerList = [];
+        public static readonly List<Bot> BotList = [];
         private static readonly System.Random random = new();
 
         public Bot()
@@ -35,8 +35,8 @@ namespace UncomplicatedCustomBots.API.Features
 
             Player = player;
 
-            List.Add(player);
-            Bots.Add(this);
+            PlayerList.Add(player);
+            BotList.Add(this);
 
             Scenario = Scenario.Create(player.Role);
 
@@ -51,8 +51,8 @@ namespace UncomplicatedCustomBots.API.Features
 
             Player = player;
 
-            List.Add(player);
-            Bots.Add(this);
+            PlayerList.Add(player);
+            BotList.Add(this);
 
             Scenario = Scenario.Create(player.Role);
 
@@ -71,10 +71,7 @@ namespace UncomplicatedCustomBots.API.Features
 
             Player.GroupName = string.Empty;
             State = new WalkingState(this);
-            Timing.CallDelayed(Timing.WaitForOneFrame, () =>
-            {
-                State?.Enter();
-            });
+            Timing.CallDelayed(Timing.WaitForOneFrame, () => State?.Enter());
         }
 
         public void ChangeRole(RoleTypeId roleTypeId) => Scenario = Scenario.Create(roleTypeId);
@@ -85,12 +82,12 @@ namespace UncomplicatedCustomBots.API.Features
         {
             SwitchingStateEventArgs switchingEventArgs = new(State, newState, this, true);
             Events.Handlers.State.OnStateSwitching(switchingEventArgs);
-            if (switchingEventArgs.IsAllowed)
-            {
-                State?.Exit();
-                State = newState;
-                State?.Enter();
-            }
+            if (!switchingEventArgs.IsAllowed)
+                return;
+                
+            State?.Exit();
+            State = newState;
+            State?.Enter();
             SwitchedStateEventArgs switchedEventArgs = new(State, newState, this);
             Events.Handlers.State.OnStateSwitched(switchedEventArgs);
         }
@@ -99,11 +96,11 @@ namespace UncomplicatedCustomBots.API.Features
         {
             State?.Exit();
 
-            if (Player != null && List.Contains(Player))
-                List.Remove(Player);
+            if (Player != null && PlayerList.Contains(Player))
+                PlayerList.Remove(Player);
 
-            if (Bots.Contains(this))
-                Bots.Remove(this);
+            if (BotList.Contains(this))
+                BotList.Remove(this);
 
             BotComponent botComponent = Player?.GameObject?.GetComponent<BotComponent>();
             if (botComponent != null)

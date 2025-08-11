@@ -43,7 +43,8 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (Bot.Player.Room != null)
             {
-                Room bestFleeRoom = Room.List.Where(r => r.Zone == Bot.Player.Room.Zone && r != Bot.Player.Room).OrderByDescending(r => Vector3.Distance(r.Position, _scpTarget.Position)).FirstOrDefault();
+                Room bestFleeRoom = Room.List.Where(r => r.Zone == Bot.Player.Room.Zone &&  r != Bot.Player.Room && r != _scpTarget.Room).OrderByDescending(r => Vector3.Distance(r.Position, _scpTarget.Position)).FirstOrDefault();
+                    
                 if (bestFleeRoom != null)
                 {
                     nav.SetDestination(bestFleeRoom);
@@ -51,7 +52,8 @@ namespace UncomplicatedCustomBots.API.Features.States
                 }
             }
 
-            Room fallbackRoom = Room.List.OrderByDescending(r => Vector3.Distance(r.Position, _scpTarget.Position)).FirstOrDefault();
+            Room fallbackRoom = Room.List.Where(r => r != _scpTarget.Room).OrderByDescending(r => Vector3.Distance(r.Position, _scpTarget.Position)).FirstOrDefault();
+                
             if (fallbackRoom != null)
                 nav.SetDestination(fallbackRoom);
             else

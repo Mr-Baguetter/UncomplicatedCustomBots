@@ -15,7 +15,6 @@ using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Managers;
 using UncomplicatedCustomBots.Events.Handlers;
 using UnityEngine;
-using Utf8Json.Internal.DoubleConversion;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
@@ -25,7 +24,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         public const float DefaultSpeed = 15f;
         public const float DefaultStoppingDistance = 1f;
         public const float DoorInteractionDistance = 2.3f;
-        public const float WaypointReachedDistance = 1f;
+        public const float WaypointReachedDistance = 1.2f;
         public const float DoorWaitTime = 2f;
         public const float PathRecalculateTime = 15f;
         public const float ElevatorInteractionDistance = 10f;
@@ -130,6 +129,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             ],
         };
         #endregion
+
         #region Initialization
         public void Init(float speed = DefaultSpeed, bool enablePatrol = false, bool enableVisualization = true, bool enableVariation = true, float variationRadius = 2.5f)
         {
@@ -180,22 +180,15 @@ namespace UncomplicatedCustomBots.API.Features.States
         #endregion
 
         #region Pathfinding
-
         private bool IsRoomInDangerousZone(Room room)
         {
             FacilityZone roomZone = room.Zone;
 
             if (_isLczDecontaminated && roomZone == FacilityZone.LightContainment)
-            {
-                LogManager.Debug($"Blocking access to LCZ room {room.Name} - Zone is decontaminated");
                 return true;
-            }
 
             if (_isFacilityNuked && roomZone != FacilityZone.Surface)
-            {
-                LogManager.Debug($"Blocking access to {room.Name} - Facility is nuked");
                 return true;
-            }
 
             return false;
         }
@@ -208,39 +201,52 @@ namespace UncomplicatedCustomBots.API.Features.States
                 bool wasDecontaminated = _isLczDecontaminated;
                 _isLczDecontaminated = decontaminationController.IsDecontaminating;
 
+                List<FacilityZone> zones =
+                [
+                    FacilityZone.LightContainment
+                ];
+
                 if (!wasDecontaminated && _isLczDecontaminated)
-                    HandleZoneCompromised(FacilityZone.LightContainment);
+                    HandleZoneCompromised(zones);
             }
 
             AlphaWarheadController warheadController = AlphaWarheadController.Singleton;
             if (warheadController != null)
             {
+                List<FacilityZone> zones =
+                [
+                    FacilityZone.HeavyContainment,
+                    FacilityZone.LightContainment,
+                    FacilityZone.Entrance,
+                    FacilityZone.Other
+                ];
+                
                 bool wasNuked = _isFacilityNuked;
                 _isFacilityNuked = warheadController.AlreadyDetonated;
 
                 if (!wasNuked && _isFacilityNuked)
-                    HandleZoneCompromised(FacilityZone.Surface);
+                    HandleZoneCompromised(zones);
             }
         }
 
-        private void HandleZoneCompromised(FacilityZone compromisedZone)
+        private void HandleZoneCompromised(List<FacilityZone> compromisedZoneList)
         {
-            if (_currentTargetRoom != null && _currentTargetRoom.Zone == compromisedZone)
+            foreach (FacilityZone compromisedZone in compromisedZoneList)
             {
-                LogManager.Warn($"Current target room {_currentTargetRoom.Name} is in compromised zone {compromisedZone}. Stopping navigation.");
-                StopNavigation();
-
-                if (_enablePatrolMode)
+                if (_currentTargetRoom != null && _currentTargetRoom.Zone == compromisedZone)
                 {
-                    FindSafePatrolDestination();
-                }
-            }
+                    StopNavigation();
 
-            Room currentRoom = Player.Get(_hub).CachedRoom;
-            if (currentRoom != null && currentRoom.Zone == compromisedZone)
-            {
-                LogManager.Warn($"Bot is in compromised zone {compromisedZone}. Attempting evacuation.");
-                EvacuateFromZone(compromisedZone);
+                    if (_enablePatrolMode)
+                        FindSafePatrolDestination();
+                }
+
+                Room currentRoom = Player.Get(_hub).CachedRoom;
+                if (currentRoom != null && currentRoom.Zone == compromisedZone)
+                {
+                    LogManager.Warn($"Bot is in compromised zone {compromisedZone}. Attempting evacuation.");
+                    EvacuateFromZone(compromisedZone);
+                }
             }
         }
 
@@ -318,37 +324,35 @@ namespace UncomplicatedCustomBots.API.Features.States
             return false;
         }
 
-        private Vector3 GetOptimalRoomWaypoint(Room room, Vector3 currentPosition, Room nextRoom = null)
+        private List<Vector3> GetOptimalRoomWaypoints(Room room, Vector3 currentPosition, Room nextRoom = null)
         {
             List<Vector3> specificWaypoints = GetRoomSpecificWaypoints(room);
 
             if (specificWaypoints.Count == 0)
-                return GetVariedRoomWaypoint(room.Position + Vector3.up, room);
+                return [GetVariedRoomWaypoint(room.Position + Vector3.up, room)];
 
             if (specificWaypoints.Count == 1)
-                return specificWaypoints[0];
+                return specificWaypoints;
 
-            Vector3 bestWaypoint = specificWaypoints[0];
-            float bestScore = float.MaxValue;
+            List<Vector3> sortedWaypoints = SortWaypointsByOptimalOrder(specificWaypoints, currentPosition, nextRoom);
+            return sortedWaypoints;
+        }
 
-            foreach (Vector3 waypoint in specificWaypoints)
+        private List<Vector3> SortWaypointsByOptimalOrder(List<Vector3> waypoints, Vector3 currentPosition, Room nextRoom)
+        {
+            List<Vector3> sorted = [];
+            List<Vector3> remaining = new List<Vector3>(waypoints);
+            Vector3 current = currentPosition;
+
+            while (remaining.Count > 0)
             {
-                float score = Vector3.Distance(currentPosition, waypoint);
-
-                if (nextRoom != null)
-                {
-                    float distanceToNext = Vector3.Distance(waypoint, nextRoom.Position);
-                    score += distanceToNext * 0.5f;
-                }
-
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    bestWaypoint = waypoint;
-                }
+                Vector3 nearest = remaining.OrderBy(w => Vector3.Distance(current, w)).First();
+                sorted.Add(nearest);
+                remaining.Remove(nearest);
+                current = nearest;
             }
 
-            return bestWaypoint;
+            return sorted;
         }
 
         private void CalculatePath()
@@ -401,7 +405,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private bool HandleClassDInitialDoor(Room currentRoom)
         {
-            if (_hub.roleManager.CurrentRole.RoleTypeId != RoleTypeId.ClassD || _initialClassDDoor != null)
+            if (_hub.roleManager.CurrentRole.RoleTypeId != RoleTypeId.ClassD || _initialClassDDoor != null || Round.Duration.Seconds >= 30)
                 return false;
 
             Door exitDoor = currentRoom.Doors.OrderBy(d => Vector3.Distance(_hub.transform.position, d.Position)).FirstOrDefault();
@@ -414,6 +418,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 LogManager.Debug($"Class-D initial waypoint: door at {doorFront}");
                 return true;
             }
+            
             return false;
         }
 
@@ -422,15 +427,16 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (HasRoomSpecificWaypoints(room))
             {
                 Room nextRoom = roomIndex + 1 < _roomPath.Count ? _roomPath[roomIndex + 1] : null;
-                Vector3 optimalWaypoint = GetOptimalRoomWaypoint(room, transform.position, nextRoom);
+                List<Vector3> optimalWaypoints = GetOptimalRoomWaypoints(room, transform.position, nextRoom);
+                
+                foreach (Vector3 waypoint in optimalWaypoints)
+                    _waypoints.Add(waypoint);
                 
                 if (nextRoom != null)
                 {
                     Door connectingDoor = FindConnectingDoor(room, nextRoom);
                     if (connectingDoor != null)
                     {
-                        _waypoints.Add(optimalWaypoint);
-                        
                         Vector3 doorPosition = connectingDoor.Position;
                         Vector3 directionToNextRoom = (nextRoom.Position - doorPosition).normalized;
                         Vector3 offset = directionToNextRoom * 1.5f;
@@ -440,8 +446,6 @@ namespace UncomplicatedCustomBots.API.Features.States
                         return;
                     }
                 }
-                
-                _waypoints.Add(optimalWaypoint);
             }
             else
             {
@@ -474,9 +478,15 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             Vector3 directionToNextRoom = (nextRoom.Position - doorPosition).normalized;
             Vector3 offset = directionToNextRoom * 1.5f;
+            
+            Vector3 beforeDoor = doorPosition - offset;
+            beforeDoor.y += 1f;
 
-            _waypoints.Add(doorPosition - offset);
-            _waypoints.Add(doorPosition + offset);
+            Vector3 afterDoor = doorPosition + offset;
+            afterDoor.y += 1f;
+
+            _waypoints.Add(beforeDoor - offset);
+            _waypoints.Add(afterDoor + offset);
         }
 
         private Vector3 GetVariedRoomWaypoint(Vector3 roomCenter, Room room)
@@ -709,14 +719,15 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void SetupDefaultPatrolRoute()
         {
-            var defaultRooms = new List<RoomName>
-            {
+            List<RoomName> defaultRooms =
+            [
                 RoomName.LczClassDSpawn,
                 RoomName.Lcz914,
                 RoomName.LczCheckpointA,
                 RoomName.Hcz049,
                 RoomName.HczCheckpointA
-            };
+            ];
+            
             SetPatrolRoute(defaultRooms);
         }
 
@@ -770,9 +781,20 @@ namespace UncomplicatedCustomBots.API.Features.States
             {
                 if (collider.TryGetComponent<ElevatorChamber>(out var chamber))
                 {
-                    _waitingForElevator = true;
-                    chamber.ServerSetDestination(chamber.NextLevel, false);
-                    return;
+                    if (Player.Get(_hub).Zone == FacilityZone.HeavyContainment)
+                    {
+                        _waitingForElevator = true;
+                        chamber.ServerSetDestination(1, false);
+                        return;
+                    }
+                    else if (Player.Get(_hub).Zone == FacilityZone.LightContainment)
+                    {
+                        _waitingForElevator = true;
+                        chamber.ServerSetDestination(0, false);
+                        return;
+                    }
+                    else
+                        return;
                 }
             }
         }

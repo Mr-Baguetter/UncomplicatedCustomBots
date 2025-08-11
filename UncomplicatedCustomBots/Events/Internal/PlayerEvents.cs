@@ -8,6 +8,7 @@ using Mirror;
 using NetworkManagerUtils.Dummies;
 using PlayerRoles;
 using PlayerRoles.Voice;
+using PlayerStatsSystem;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -35,6 +36,7 @@ namespace UncomplicatedCustomBots.Events.Internal
             EventTarget.Death += OnPlayerDeath;
             EventTarget.Uncuffed += OnPlayerUncuffed;
             EventTarget.Cuffed += OnPlayerCuffed;
+            EventTarget.Hurt += OnPlayerHurt;
         }
         public static void Unregister()
         {
@@ -43,6 +45,7 @@ namespace UncomplicatedCustomBots.Events.Internal
             EventTarget.Death -= OnPlayerDeath;
             EventTarget.Uncuffed -= OnPlayerUncuffed;
             EventTarget.Cuffed -= OnPlayerCuffed;
+            EventTarget.Hurt -= OnPlayerHurt;
         }
 
 
@@ -50,14 +53,12 @@ namespace UncomplicatedCustomBots.Events.Internal
         {
             Timing.CallDelayed(Timing.WaitForOneFrame, () =>
             {
-                foreach (Bot bot in Bot.Bots.Where(b => b.Player == ev.Player))
+                foreach (Bot bot in Bot.BotList.Where(b => b.Player == ev.Player))
                 {
                     LogManager.Info($"Starting bot {bot.Player.DisplayName} - {bot.Player.PlayerId} - {bot.Player.Role}");
                     bot.Start();
-                    if (bot.Player.ReferenceHub.IsHuman())
-                        bot.Player.GameObject.AddComponent<HumanVoiceModule>();
                 }
-                if (ev.Player.IsBot() && !Plugin.Instance.Config.AllowScps && ev.Player.Team == Team.SCPs || ev.Player.Role == RoleTypeId.Scp079)
+                if (ev.Player.IsBot() && !Plugin.Instance.Config.AllowScps && ev.Player.Team == Team.SCPs)
                     ev.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
             });
         }
@@ -73,7 +74,7 @@ namespace UncomplicatedCustomBots.Events.Internal
             if (!Plugin.Instance.Config.NewPlayersReplaceBots)
                 return;
 
-            Player botPlayer = Bot.List.FirstOrDefault();
+            Player botPlayer = Bot.PlayerList.RandomItem();
             if (botPlayer == null)
                 return;
 
@@ -82,13 +83,26 @@ namespace UncomplicatedCustomBots.Events.Internal
             ev.Player.Position = botPlayer.Position;
             ev.Player.Rotation = botPlayer.Rotation;
             ev.Player.ArtificialHealth = botPlayer.ArtificialHealth;
+            ev.Player.MaxArtificialHealth = botPlayer.MaxArtificialHealth;
             ev.Player.Scale = botPlayer.Scale;
             ev.Player.ClearItems();
             foreach (Item item in botPlayer.Items)
                 ev.Player.AddItem(item.Type);
+            ev.Player.ClearAmmo();
+            foreach (var ammo in botPlayer.Ammo)
+                ev.Player.SetAmmo(ammo.Key, ammo.Value);
             ev.Player.Health = botPlayer.Health;
+            ev.Player.MaxHealth = botPlayer.MaxHealth;
             ev.Player.HumeShield = botPlayer.HumeShield;
+            ev.Player.IsDisarmed = botPlayer.IsDisarmed;
+            if (ev.Player.IsDisarmed)
+                ev.Player.DisarmedBy = botPlayer.DisarmedBy;
+            ev.Player.MaxHumeShield = botPlayer.MaxHumeShield;
+            ev.Player.HumeShieldRegenRate = botPlayer.HumeShieldRegenRate;
+            ev.Player.HumeShieldRegenCooldown = botPlayer.HumeShieldRegenCooldown;
+            ev.Player.Gravity = botPlayer.Gravity;
             ev.Player.CurrentItem = botPlayer.CurrentItem;
+            ev.Player.StaminaRemaining = botPlayer.StaminaRemaining;
             ev.Player.SendBroadcast($"You replaced a bot!", 5);
             ev.Player.DisableAllEffects();
 
@@ -120,6 +134,18 @@ namespace UncomplicatedCustomBots.Events.Internal
             }
 
             bot.Player.GameObject.AddComponent<PlayerFollower>().Init(ev.Player.ReferenceHub);
+        }
+
+        public static void OnPlayerHurt(PlayerHurtEventArgs ev)
+        {
+            if (ev.DamageHandler is not ScpDamageHandler handler)
+                return;
+            if (handler.Attacker.Role != RoleTypeId.Scp106)
+                return;
+            if (!ev.Player.IsBot())
+                return;
+
+            ev.Player.Kill($"Killed by SCP-106");
         }
     }
 }

@@ -28,7 +28,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _fireRate = 0.2f;
         private float _fireTimer = 0f;
         private float _optimalDistance = 15f;
-        public static readonly CachedLayerMask HitregMask = new("Default", "Hitbox", "Glass", "CCTV", "Door");
+        public static readonly CachedLayerMask HitregMask = new("InvisibleCollider", "Default", "Hitbox", "Glass", "CCTV");
         private float _tooCloseDistance = 7f;
         private bool _isReloading = false;
         private float _combatSpeed = 13.5f;
@@ -325,18 +325,15 @@ namespace UncomplicatedCustomBots.API.Features.States
         private bool IsActuallyReloading(FirearmItem firearm)
         {
             if (firearm?.Base?.TryGetModule<IReloaderModule>(out var reloadModule) == true)
-            {
                 return reloadModule.IsReloading;
-            }
+
             return false;
         }
 
         public override void Exit()
         {
             if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
-            {
                 nav.enabled = true;
-            }
         }
     }
 }

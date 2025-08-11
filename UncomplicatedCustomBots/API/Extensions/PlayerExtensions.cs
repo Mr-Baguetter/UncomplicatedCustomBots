@@ -9,7 +9,7 @@ namespace UncomplicatedCustomBots.API.Extensions
     {
         public static bool IsBot(this Player player)
         {
-            foreach (Bot bot in Bot.Bots.Where(b => b.Player == player))
+            foreach (Bot bot in Bot.BotList.Where(b => b.Player == player))
                 return true;
 
             return false;
@@ -21,6 +21,6 @@ namespace UncomplicatedCustomBots.API.Extensions
             return bot != null;
         }
 
-        public static Bot GetBot(this Player player) => Bot.Bots.Where(b => b.Player == player).FirstOrDefault();
+        public static Bot GetBot(this Player player) => Bot.BotList.Where(b => b.Player == player).FirstOrDefault();
     }
 }

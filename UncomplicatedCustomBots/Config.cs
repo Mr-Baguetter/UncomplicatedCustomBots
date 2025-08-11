@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.ComponentModel;
 #if EXILED
 using Exiled.API.Interfaces;
 #endif
@@ -8,24 +9,34 @@ namespace UncomplicatedCustomBots
 #if LABAPI
     public class Config
     {
+        [Description("Enable debug messages in the console.")]
         public bool Debug { get; set; }
-
+        
+        [Description("Enable credit tags for all UCS developers in the game.")]
         public bool EnableCreditTags { get; set; } = true;
-
+        
+        [Description("Allow bots to spawn as SCP entities.")]
         public bool AllowScps { get; set; }
-
+        
+        [Description("Display silent logs (typically internal logs) in the console.")]
         public bool ShowSilentLogs { get; set; }
-
+        
+        [Description("Enable bots to attack Tutorial players.")]
         public bool AttackTutorials { get; set; }
-
+        
+        [Description("Maximum number of bots to spawn at round start. Values above 10 may cause performance issues.")]
         public float MaxBots { get; set; } = 10;
-
+        
+        [Description("Maximum number of human players before bot spawning is disabled.")]
         public float MaxPlayers { get; set; } = 5;
-
+        
+        [Description("Automatically replace bots with human players when new players join the server.")]
         public bool NewPlayersReplaceBots { get; set; } = true;
-
-        public string GithubToken { get; set; } 
-
+        
+        [Description("GitHub personal access token for the updater feature. Leave empty to not use a token.")]
+        public string GithubToken { get; set; }
+        
+        [Description("List of room GameObject names where bots are prohibited from tracking to.")]
         public List<string> BlacklistedRooms { get; set; } = new List<string>
         {
             "HCZ_ServerRoom(Clone)",
@@ -34,7 +45,8 @@ namespace UncomplicatedCustomBots
             "HCZ_Straight_PipeRoom(Clone)",
             "PocketWorld(Clone)"
         };
-
+        
+        [Description("List of item types that bots are allowed to pick up and use. Default includes all available items.")]
         public List<ItemType> AllowedPickupItems { get; set; } = new List<ItemType>
         {
             ItemType.KeycardJanitor,
@@ -104,7 +116,8 @@ namespace UncomplicatedCustomBots
             ItemType.KeycardCustomManagement,
             ItemType.KeycardCustomMetalCase
         };
-
+        
+        [Description("Pool of names that will be randomly assigned to spawned bots.")]
         public List<string> Names { get; set; } =
         [
             "John",
@@ -161,23 +174,35 @@ namespace UncomplicatedCustomBots
     public class Config : IConfig
     {
         public bool IsEnabled { get; set; }
-
+        
+        [Description("Enable debug messages in the console")]
         public bool Debug { get; set; }
-
+        
+        [Description("Enable credit tags for all UCS developers in the game.")]
         public bool EnableCreditTags { get; set; } = true;
-
+        
+        [Description("Allow bots to spawn as SCP entities.")]
         public bool AllowScps { get; set; }
-
+        
+        [Description("Display silent logs (typically internal logs) in the console.")]
         public bool ShowSilentLogs { get; set; }
-
+        
+        [Description("Enable bots to attack Tutorial players.")]
+        public bool AttackTutorials { get; set; }
+        
+        [Description("Maximum number of bots to spawn at round start. Values above 10 may cause performance issues.")]
         public float MaxBots { get; set; } = 10;
-
+        
+        [Description("Maximum number of human players before bot spawning is disabled.")]
         public float MaxPlayers { get; set; } = 5;
-
+        
+        [Description("Automatically replace bots with human players when new players join the server.")]
         public bool NewPlayersReplaceBots { get; set; } = true;
-
+        
+        [Description("GitHub personal access token for the updater feature. Leave empty to not use a token.")]
         public string GithubToken { get; set; }
-
+        
+        [Description("List of room GameObject names where bots are prohibited from tracking to.")]
         public List<string> BlacklistedRooms { get; set; } = new List<string>
         {
             "HCZ_ServerRoom(Clone)",
@@ -186,7 +211,8 @@ namespace UncomplicatedCustomBots
             "HCZ_Straight_PipeRoom(Clone)",
             "PocketWorld(Clone)"
         };
-
+        
+        [Description("List of item types that bots are allowed to pick up and use. Default includes all available items.")]
         public List<ItemType> AllowedPickupItems { get; set; } = new List<ItemType>
         {
             ItemType.KeycardJanitor,
@@ -205,7 +231,6 @@ namespace UncomplicatedCustomBots
             ItemType.GunCOM15,
             ItemType.Medkit,
             ItemType.Flashlight,
-            ItemType.MicroHID,
             ItemType.SCP500,
             ItemType.SCP207,
             ItemType.Ammo12gauge,
@@ -257,7 +282,8 @@ namespace UncomplicatedCustomBots
             ItemType.KeycardCustomManagement,
             ItemType.KeycardCustomMetalCase
         };
-
+        
+        [Description("Pool of names that will be randomly assigned to spawned bots.")]
         public List<string> Names { get; set; } =
         [
             "John",
@@ -307,6 +333,7 @@ namespace UncomplicatedCustomBots
             "Harper",
             "Administrator Lee",
             "Jackson",
+            "Dexter Morgan",
         ];
     }
 #endif

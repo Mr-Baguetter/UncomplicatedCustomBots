@@ -7,7 +7,6 @@ using UncomplicatedCustomBots.API.Enums;
 using PlayerRoles;
 using MapGeneration;
 using UncomplicatedCustomBots.API.Features.States;
-using MEC;
 
 namespace UncomplicatedCustomBots.API.Features.Components
 {
@@ -15,7 +14,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
     {
         private StringBuilder Text;
         private Player Player;
-        private int layerMask = ~LayerMask.GetMask("Hitbox");
+        private readonly int layerMask = ~LayerMask.GetMask("Hitbox");
 
         public DebugUISections ActiveSections = DebugUISections.All;
 
@@ -69,16 +68,28 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             if (ActiveSections.HasFlag(DebugUISections.PlayerInfo))
             {
-                Text.AppendLine($"<size=14><b><color=blue>Player Info</color></b></size>");
-                Text.AppendLine($"<size=10><b>Role:</b> {Player.Role}");
-                Text.AppendLine($"<size=10><b>Position:</b> {Player.Position}");
-                Text.AppendLine($"<size=10><b>Relative Position:</b> {Player.Room.LocalPosition(Player.Position)}");
-                Text.AppendLine($"<size=10><b>Rotation:</b> {Player.Rotation.eulerAngles}");
-                Text.AppendLine($"<size=10><b>Cached Room Name:</b> {Player.CachedRoom.Name}");
-                Text.AppendLine($"<size=10><b>Current Room Name:</b> {Player.Room}");
-                Text.AppendLine($"<size=10><b>Current Room GameObject Name:</b> {Player.Room.GameObject.name}");
-                Text.AppendLine("<color=grey>--------------------------</color>");
-                Text.AppendLine();
+                if (Player.Room != null && Player.CachedRoom != null)
+                {
+                    Text.AppendLine($"<size=14><b><color=blue>Player Info</color></b></size>");
+                    Text.AppendLine($"<size=10><b>Role:</b> {Player.Role}");
+                    Text.AppendLine($"<size=10><b>Position:</b> {Player.Position}");
+                    Text.AppendLine($"<size=10><b>Relative Position:</b> {Player.Room.LocalPosition(Player.Position)}");
+                    Text.AppendLine($"<size=10><b>Rotation:</b> {Player.Rotation.eulerAngles}");
+                    Text.AppendLine($"<size=10><b>Cached Room Name:</b> {Player.CachedRoom.Name}");
+                    Text.AppendLine($"<size=10><b>Current Room Name:</b> {Player.Room}");
+                    Text.AppendLine($"<size=10><b>Current Room GameObject Name:</b> {Player.Room.GameObject.name}");
+                    Text.AppendLine("<color=grey>--------------------------</color>");
+                    Text.AppendLine();
+                }
+                else
+                {
+                    Text.AppendLine($"<size=14><b><color=blue>Player Info</color></b></size>");
+                    Text.AppendLine($"<size=10><b>Role:</b> {Player.Role}");
+                    Text.AppendLine($"<size=10><b>Position:</b> {Player.Position}");
+                    Text.AppendLine($"<size=10><b>Rotation:</b> {Player.Rotation.eulerAngles}");
+                    Text.AppendLine("<color=grey>--------------------------</color>");
+                    Text.AppendLine();
+                }
             }
 
             if (ActiveSections.HasFlag(DebugUISections.ServerInfo))
@@ -107,6 +118,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (ActiveSections.HasFlag(DebugUISections.RoleInfo))
             {
                 Text.AppendLine($"<size=14><b><color=red>Role Info</color></b></size>");
+                Text.AppendLine($"<size=10><b>Total Players:</b> {Player.ReadyList.Count()}");
                 Text.AppendLine($"<size=10><b>Total Dead:</b> {Player.ReadyList.Where(p => p.Team == Team.Dead).Count()}");
                 Text.AppendLine($"<size=10><b>Total ClassDs:</b> {Player.ReadyList.Where(p => p.Role == RoleTypeId.ClassD).Count()}");
                 Text.AppendLine($"<size=10><b>Total Scientists:</b> {Player.ReadyList.Where(p => p.Role == RoleTypeId.Scientist).Count()}");
@@ -133,11 +145,11 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (ActiveSections.HasFlag(DebugUISections.BotInfo))
             {
                 Text.AppendLine($"<size=14><b><color=blue>Bot Info</color></b></size>");
-                Text.AppendLine($"<size=10><b>Total Bots:</b> {Bot.Bots.Count()}");
-                Text.AppendLine($"<size=10><b>Total Bots with Navigation Component:</b> {Bot.Bots.Where(b => b.HasNavigation()).Count()}");
-                Text.AppendLine($"<size=10><b>Total Bots in WalkingState:</b> {Bot.Bots.Where(b => b.State is WalkingState).Count()}");
-                Text.AppendLine($"<size=10><b>Total Bots in CombatState:</b> {Bot.Bots.Where(b => b.State is CombatState).Count()}");
-                Text.AppendLine($"<size=10><b>Total Bots in FleeState:</b> {Bot.Bots.Where(b => b.State is FleeState).Count()}");
+                Text.AppendLine($"<size=10><b>Total Bots:</b> {Bot.BotList.Count()}");
+                Text.AppendLine($"<size=10><b>Total Bots with Navigation Component:</b> {Bot.BotList.Where(b => b.HasNavigation()).Count()}");
+                Text.AppendLine($"<size=10><b>Total Bots in WalkingState:</b> {Bot.BotList.Where(b => b.State is WalkingState).Count()}");
+                Text.AppendLine($"<size=10><b>Total Bots in CombatState:</b> {Bot.BotList.Where(b => b.State is CombatState).Count()}");
+                Text.AppendLine($"<size=10><b>Total Bots in FleeState:</b> {Bot.BotList.Where(b => b.State is FleeState).Count()}");
                 Text.AppendLine("<color=grey>--------------------------</color>");
                 Text.AppendLine();
             }

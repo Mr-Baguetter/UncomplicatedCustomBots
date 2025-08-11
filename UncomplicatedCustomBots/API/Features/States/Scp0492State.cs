@@ -45,9 +45,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
 
             if (!Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower))
-            {
                 follower = Bot.Player.GameObject.AddComponent<PlayerFollower>();
-            }
+
             follower.enabled = true;
             follower.Init(SCP049.ReferenceHub);
 
@@ -67,9 +66,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target != null && !ShouldExitCombat())
             {
                 if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower) && follower.enabled)
-                {
                     follower.enabled = false;
-                }
+                    
                 HandleCombatMovement();
                 HandleCombat();
             }

@@ -537,6 +537,8 @@
     <Compile Include="Commands\Admin\Goto.cs" />
     <Compile Include="Commands\DebugCommandBase.cs" />
     <Compile Include="Commands\Debug\BotDebug.cs" />
+    <Compile Include="Commands\Debug\RoomChildren.cs" />
+    <Compile Include="Commands\Debug\RoomBounds.cs" />
     <Compile Include="Commands\Debug\DebugUI.cs" />
     <Compile Include="Commands\Debug\SendRayCast.cs" />
     <Compile Include="Config.cs" />

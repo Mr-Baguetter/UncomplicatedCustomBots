@@ -26,7 +26,6 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _optimalDistance = 1f;
         private float _tooCloseDistance = .6f;
         private float _combatSpeed = 10f;
-        private LayerMask _ragdollLayerMask;
         private float _strafeTimer = 0f;
         private bool _isStrafing = false;
         private float _strafeDirection = 1f;
@@ -40,7 +39,6 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public Scp106State(Bot bot) : base(bot)
         {
-            _ragdollLayerMask = LayerMask.GetMask("Ragdoll");
             _lastPosition = bot.Player.Position;
             _strafeDirection = UnityEngine.Random.value > 0.5f ? 1f : -1f;
             scp106 = bot.Player.RoleBase as Scp106Role;

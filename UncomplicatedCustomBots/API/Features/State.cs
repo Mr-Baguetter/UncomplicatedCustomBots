@@ -1,9 +1,4 @@
 ﻿using LabApi.Features.Wrappers;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace UncomplicatedCustomBots.API.Features
 {
@@ -23,9 +18,5 @@ namespace UncomplicatedCustomBots.API.Features
         public abstract void Update();
 
         public abstract void Exit();
-
-        public virtual void OnShot() { }
-
-        public virtual void OnDied() { }
     }
 }
