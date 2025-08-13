@@ -57,9 +57,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_isReloading)
             {
                 if (Bot.Player.CurrentItem is FirearmItem firearm && !IsActuallyReloading(firearm))
-                {
                     _isReloading = false;
-                }
+
                 return;
             }
 
@@ -71,9 +70,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
 
             if (_target != null && HasLineOfSight())
-            {
                 _noTargetSightTimer = 0f;
-            }
             else
             {
                 _noTargetSightTimer += Time.deltaTime;
@@ -91,20 +88,20 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
 
             if (Bot.Player.Health < 50)
-            {
                 UseMedicalItem();
-                return;
-            }
 
             if (CheckAndReload())
                 return;
 
-            if (!SwitchToBestWeapon())
+            if (Bot.Player.Health > 50)
             {
-                if (_target != null && _stateChangeTimer > MIN_STATE_DURATION)
+                if (!SwitchToBestWeapon())
                 {
-                    Bot.ChangeState(new FleeState(Bot, _target));
-                    return;
+                    if (_target != null && _stateChangeTimer > MIN_STATE_DURATION)
+                    {
+                        Bot.ChangeState(new FleeState(Bot, _target));
+                        return;
+                    }
                 }
             }
 
@@ -301,7 +298,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (ammoContainer.AmmoStored == 0)
             {
-                if (Bot.Player.Ammo.TryGetValue(firearm.AmmoType, out var availableAmmo) && availableAmmo > 0)
+                if (Bot.Player.Ammo.TryGetValue(firearm.AmmoType, out ushort availableAmmo) && availableAmmo > 0)
                 {
                     if (reloadModule is AnimatorReloaderModuleBase reloadAnimator)
                     {

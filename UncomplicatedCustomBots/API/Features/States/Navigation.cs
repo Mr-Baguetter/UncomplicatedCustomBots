@@ -3,6 +3,7 @@ using Interactables.Interobjects.DoorUtils;
 using LabApi.Features.Wrappers;
 using LightContainmentZoneDecontamination;
 using MapGeneration;
+using MEC;
 using Mirror;
 using PlayerRoles;
 using PlayerRoles.FirstPersonControl;
@@ -35,11 +36,12 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         #region Core Fields
         private ReferenceHub _hub;
+        private Player player;
         private IFpcRole _fpcRole;
         internal float _speed = DefaultSpeed;
-        private float _stoppingDistance = DefaultStoppingDistance;
+        private readonly float _stoppingDistance = DefaultStoppingDistance;
         private Room _currentTargetRoom;
-        private readonly List<Vector3> _waypoints = new();
+        private readonly List<Vector3> _waypoints = [];
         private int _currentWaypointIndex = 0;
         private bool _isNavigating = false;
         private bool _waitingForDoor = false;
@@ -47,7 +49,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _doorWaitTimer = 0f;
         private Door _initialClassDDoor = null;
         internal bool _enablePatrolMode = false;
-        private readonly List<RoomName> _patrolRooms = new();
+        private readonly List<RoomName> _patrolRooms = [];
         private int _currentPatrolIndex = 0;
         private float _waitTimeAtRoom = 3f;
         private float _roomWaitTimer = 0f;
@@ -60,9 +62,9 @@ namespace UncomplicatedCustomBots.API.Features.States
         private bool _usingElevator = false;
         private ElevatorChamber _currentElevator;
         private float _elevatorWaitTimer = 0f;
-        private readonly List<Room> _roomPath = new();
+        private readonly List<Room> _roomPath = [];
         private bool _enablePathVisualization = true;
-        private readonly List<ClientSidePrimitive> _currentPathPrimitives = new();
+        private readonly List<ClientSidePrimitive> _currentPathPrimitives = [];
         private Color _waypointColor = Color.green;
         private Color _currentWaypointColor = Color.red;
         private Color _completedWaypointColor = Color.gray;
@@ -144,6 +146,8 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_enablePatrolMode && _patrolRooms.Count == 0)
                 SetupDefaultPatrolRoute();
+
+            player = Player.Get(_hub);
         }
         #endregion
 
@@ -241,7 +245,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                         FindSafePatrolDestination();
                 }
 
-                Room currentRoom = Player.Get(_hub).CachedRoom;
+                Room currentRoom = player.CachedRoom;
                 if (currentRoom != null && currentRoom.Zone == compromisedZone)
                 {
                     LogManager.Warn($"Bot is in compromised zone {compromisedZone}. Attempting evacuation.");
@@ -252,7 +256,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void EvacuateFromZone(FacilityZone dangerousZone)
         {
-            Room currentRoom = Player.Get(_hub).CachedRoom;
+            Room currentRoom = player.CachedRoom;
             if (currentRoom == null)
                 return;
 
@@ -289,9 +293,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Room anySafeRoom = Room.List.Where(r => !IsRoomInDangerousZone(r)).OrderBy(r => UnityEngine.Random.value).FirstOrDefault();
 
                 if (anySafeRoom != null)
-                {
                     SetDestination(anySafeRoom);
-                }
             }
         }
 
@@ -360,8 +362,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_currentTargetRoom == null)
                 return;
 
-            Room currentRoom = Player.Get(_hub).CachedRoom;
-            if (currentRoom == null || Player.Get(_hub).Team == Team.Dead)
+            Room currentRoom = player.CachedRoom;
+            if (currentRoom == null || player.Team == Team.Dead)
             {
                 LogManager.Warn("Cannot calculate path: Current room is null, Sending bot to spawn location");
                 return;
@@ -390,7 +392,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_roomPath.Count == 0)
             {
-                Room randomRoom = RoomExtensions.GetRandomRoom();
+                Room randomRoom = RoomExtensions.GetRandomRoomByBlacklist();
                 SetDestination(randomRoom);
                 LogManager.Debug($"No path found from {currentRoom.Name} to {_currentTargetRoom.Name}, Selecting random room {randomRoom.Name} - {randomRoom.GameObject.name}");
                 return;
@@ -439,10 +441,16 @@ namespace UncomplicatedCustomBots.API.Features.States
                     {
                         Vector3 doorPosition = connectingDoor.Position;
                         Vector3 directionToNextRoom = (nextRoom.Position - doorPosition).normalized;
-                        Vector3 offset = directionToNextRoom * 1.5f;
+                        Vector3 offset = directionToNextRoom * .5f;
                         
-                        _waypoints.Add(doorPosition - offset + Vector3.up * 1f);
-                        _waypoints.Add(doorPosition + offset + Vector3.up * 1f);
+                        Vector3 beforeDoor = doorPosition - offset;
+                        beforeDoor.y += 1f;
+
+                        Vector3 afterDoor = doorPosition + offset;
+                        afterDoor.y += 1f;
+
+                        _waypoints.Add(beforeDoor - offset);
+                        _waypoints.Add(afterDoor + offset);
                         return;
                     }
                 }
@@ -477,7 +485,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 _waypoints.Add(roomCenter);
 
             Vector3 directionToNextRoom = (nextRoom.Position - doorPosition).normalized;
-            Vector3 offset = directionToNextRoom * 1.5f;
+            Vector3 offset = directionToNextRoom * .5f;
             
             Vector3 beforeDoor = doorPosition - offset;
             beforeDoor.y += 1f;
@@ -486,7 +494,9 @@ namespace UncomplicatedCustomBots.API.Features.States
             afterDoor.y += 1f;
 
             _waypoints.Add(beforeDoor - offset);
-            _waypoints.Add(afterDoor + offset);
+
+            if (connectingDoor.Rooms.Any(r => r.Name != RoomName.HczTestroom))
+                _waypoints.Add(afterDoor + offset);
         }
 
         private Vector3 GetVariedRoomWaypoint(Vector3 roomCenter, Room room)
@@ -504,7 +514,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private Vector3 ClampPositionToRoomBounds(Vector3 position, Room room, float margin)
         {
-            Bounds roomBounds = room.GameObject.GetComponent<MeshCollider>()?.bounds ?? new Bounds(room.Position, Vector3.one * 10f);
+            Bounds roomBounds = room.Base.WorldspaceBounds;
 
             float maxMargin = Mathf.Min(roomBounds.size.x, roomBounds.size.z) * 0.5f;
             margin = Mathf.Min(margin, maxMargin);
@@ -588,7 +598,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private DoorVariant FindBlockingDoor(Vector3 waypoint)
         {
-            Room currentRoom = Player.Get(_hub).CachedRoom;
+            Room currentRoom = player.CachedRoom;
             if (currentRoom == null)
                 return null;
 
@@ -625,18 +635,28 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (distanceToDoor <= DoorInteractionDistance)
             {
-                Player player = Player.Get(_hub);
                 if (player != null && Door.Get(door).CanInteract)
                 {
-                    Item item = player.Items.Where(item => item is KeycardItem keycard && item.Base is IDoorPermissionProvider keycardProvider && door is IDoorPermissionRequester permissions && permissions.PermissionsPolicy.CheckPermissions(keycardProvider.GetPermissions(permissions))).FirstOrDefault();
-                    player.CurrentItem = item;
-                    if (door.AllowInteracting(_hub, 0))
+                    if (door.PermissionsPolicy.RequiredPermissions != DoorPermissionFlags.None && player.Team != Team.SCPs)
                     {
-                        door.ServerInteract(_hub, 0);
-                        _currentDoor = door;
-                        _waitingForDoor = true;
-                        _doorWaitTimer = DoorWaitTime;
+                        Item item = player.Items.Where(item => item is KeycardItem keycard && item.Base is IDoorPermissionProvider keycardProvider && door is IDoorPermissionRequester permissions && permissions.PermissionsPolicy.CheckPermissions(keycardProvider.GetPermissions(permissions))).FirstOrDefault();
+                        if (item != null)
+                        {
+                            KeycardItem keycard = item as KeycardItem;
+                            LogManager.Debug($"{player.DisplayName} - {player.PlayerId} - Found {item.Type}, Card Permissions: {keycard.Permissions.ToString()}, Door Permissions:  {Door.Get(door).Permissions.ToString()}");
+                            player.CurrentItem = item;
+                        }
                     }
+                    Timing.CallDelayed(Timing.WaitForOneFrame, () =>
+                    { 
+                        if (door.AllowInteracting(_hub, 0))
+                        {
+                            door.ServerInteract(_hub, 0);
+                            _currentDoor = door;
+                            _waitingForDoor = true;
+                            _doorWaitTimer = DoorWaitTime;
+                        }
+                    });
                 }
                 else
                 {
@@ -690,7 +710,6 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             if (_currentWaypointIndex < _waypoints.Count)
             {
-                Player player = Player.Get(_hub);
                 player.Position = _waypoints[_currentWaypointIndex] + Vector3.up * 0.5f;
 
                 _currentWaypointIndex++;
@@ -781,13 +800,13 @@ namespace UncomplicatedCustomBots.API.Features.States
             {
                 if (collider.TryGetComponent<ElevatorChamber>(out var chamber))
                 {
-                    if (Player.Get(_hub).Zone == FacilityZone.HeavyContainment)
+                    if (player.Zone == FacilityZone.HeavyContainment)
                     {
                         _waitingForElevator = true;
                         chamber.ServerSetDestination(1, false);
                         return;
                     }
-                    else if (Player.Get(_hub).Zone == FacilityZone.LightContainment)
+                    else if (player.Zone == FacilityZone.LightContainment)
                     {
                         _waitingForElevator = true;
                         chamber.ServerSetDestination(0, false);
@@ -804,8 +823,8 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_currentElevator != null)
             {
-                FacilityZone currentZone = Player.Get(_hub).Zone;
-                if (currentZone == Player.Get(_hub).Zone)
+                FacilityZone currentZone = player.Zone;
+                if (currentZone == player.Zone)
                 {
                     _waitingForElevator = false;
                     _usingElevator = true;
@@ -956,7 +975,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_pathRecalculateTimer >= PathRecalculateTime)
             {
                 _pathRecalculateTimer = 0f;
-                if (_isNavigating && _currentTargetRoom != null && _currentTargetRoom != Player.Get(_hub).CachedRoom)
+                if (_isNavigating && _currentTargetRoom != null && _currentTargetRoom != player.CachedRoom)
                     CalculatePath();
             }
         }

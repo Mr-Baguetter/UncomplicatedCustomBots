@@ -484,7 +484,6 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="API\Enums\DirectionType.cs" />
     <Compile Include="API\Enums\DebugUISections.cs" />
     <Compile Include="API\Extensions\PlayerExtensions.cs" />
     <Compile Include="API\Extensions\RoomExtensions.cs" />
@@ -525,9 +524,9 @@
     <Compile Include="API\Interfaces\ITarget.cs" />
     <Compile Include="API\Features\RoomTarget.cs" />
     <Compile Include="API\Features\EntityTarget.cs" />
-    <Compile Include="API\Interfaces\IWalkState.cs" />
     <Compile Include="API\Interfaces\IWorldSpace.cs" />
     <Compile Include="Commands\Admin\Start.cs" />
+    <Compile Include="Commands\User\Follow.cs" />
     <Compile Include="Commands\CommandBase.cs" />
     <Compile Include="Commands\SilentCommandSender.cs" />
     <Compile Include="Commands\Console\Update.cs" />
@@ -551,6 +550,7 @@
     <Compile Include="Events\Handlers\SwitchedStateEventArgs.cs" />
     <Compile Include="Events\Handlers\State.cs" />
     <Compile Include="Harmony\Patches\FPCModulePatch.cs" />
+    <Compile Include="Harmony\Patches\DummyRevolverTranspilerPatch.cs" />
     <Compile Include="Plugin.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

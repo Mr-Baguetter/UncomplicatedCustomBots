@@ -15,7 +15,6 @@ using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.UIElements;
 using EventTarget = LabApi.Events.Handlers.ServerEvents;
-using Logger = LabApi.Features.Console.Logger;
 
 namespace UncomplicatedCustomBots.Events.Internal
 {

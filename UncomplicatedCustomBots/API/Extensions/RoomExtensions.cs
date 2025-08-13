@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using UncomplicatedCustomBots.API.Features;
-using Logger = LabApi.Features.Console.Logger;
 using UnityEngine;
 using UncomplicatedCustomBots.API.Managers;
 
@@ -28,7 +27,7 @@ namespace UncomplicatedCustomBots.API.Extensions
             return null;
         }
 
-        public static Room GetRandomRoom()
+        public static Room GetRandomRoomByBlacklist()
         {
             List<Room> roomList = Room.List.Where(r => !Plugin.Instance.Config.BlacklistedRooms.Contains(r.GameObject.name)).ToList();
             
@@ -38,17 +37,7 @@ namespace UncomplicatedCustomBots.API.Extensions
             return roomList[UnityEngine.Random.Range(0, roomList.Count)];
         }
 
-        public static Room GetRandomRoom(List<string> roomBlacklist)
-        {
-            List<Room> roomList = Room.List.Where(r => !roomBlacklist.Contains(r.GameObject.name)).ToList();
-            
-            if (roomList.Count == 0)
-                return null;
-
-            return roomList[UnityEngine.Random.Range(0, roomList.Count)];
-        }
-
-        public static bool TryGetRandomRoom(out Room room) => (room = GetRandomRoom()) != null;
+        public static Room GetRandomRoom() => Room.List.ToList().RandomItem();
 
         public static List<GameObject> GetChildren(this Room room)
         {
@@ -57,16 +46,6 @@ namespace UncomplicatedCustomBots.API.Extensions
                 gameObjects.Add(child.gameObject);
 
             return gameObjects;
-        }
-
-        public static Bounds GetMapBounds(this Room room)
-        {
-            MeshRenderer renderer = room.GameObject.GetComponent<MeshRenderer>();
-            
-            if (renderer.bounds == null)
-                return new Bounds(Vector3.zero, Vector3.zero);
-                
-            return renderer.bounds;
         }
 
         /// <summary>

@@ -1,6 +1,7 @@
 using CommandSystem.Commands.RemoteAdmin.Dummies;
 using InventorySystem.Disarming;
 using LabApi.Events.Arguments.PlayerEvents;
+using LabApi.Features.Extensions;
 using LabApi.Features.Wrappers;
 using LabApi.Loader.Features.Paths;
 using MEC;
@@ -23,7 +24,6 @@ using UnityEngine.AI;
 using Utils.Networking;
 using static AdminToys.InvisibleInteractableToy;
 using EventTarget = LabApi.Events.Handlers.PlayerEvents;
-using Logger = LabApi.Features.Console.Logger;
 
 namespace UncomplicatedCustomBots.Events.Internal
 {
@@ -67,6 +67,9 @@ namespace UncomplicatedCustomBots.Events.Internal
         {
             if (!ev.Player.IsBot())
                 return;
+                
+
+            LogManager.Debug($"{ev.Player.Nickname} Died - Role: {ev.OldRole.GetFullName()} - Room: {Room.GetRoomAtPosition(ev.OldPosition).GameObject.name}, Attacker: {ev.Attacker?.Nickname ?? "null"}, Attacker Is Bot: {ev.Attacker?.IsBot() ?? false}, DamageHandler: {ev.DamageHandler.GetType()}");
         }
 
         public static void OnPlayerJoined(PlayerJoinedEventArgs ev)

@@ -21,19 +21,20 @@ namespace UncomplicatedCustomBots.API.Features.States
     {
         private Player _target;
         private float _fireTimer = 0f;
-        private float _optimalDistance = 1f;
-        LayerMask HitregMask = ~LayerMask.GetMask("Default", "Door", "Glass", "Fence", "CCTV");
-        private float _tooCloseDistance = .4f;
-        private float _combatSpeed = 13.5f;
+        private readonly float _optimalDistance = 1f;
+        LayerMask ObstacleMask = LayerMask.GetMask("Default", "Door", "Glass", "Fence", "CCTV");
+        private readonly float _tooCloseDistance = .4f;
+        private readonly float _combatSpeed = 13.5f;
         private float _targetCheckTimer = 0f;
         private const float TARGET_CHECK_INTERVAL = 0.5f;
         private float _stateChangeTimer = 0f;
         private float _noTargetSightTimer = 0f;
         private readonly Player SCP049;
 
-        public Scp0492State(Bot bot, Player scp049) : base(bot)
+        public Scp0492State(Bot bot, Player scp049, float speed = 13.5f) : base(bot)
         {
             SCP049 = scp049;
+            _combatSpeed = speed;
         }
 
         public override void Enter()
@@ -59,7 +60,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             _targetCheckTimer += Time.deltaTime;
             if (_targetCheckTimer >= TARGET_CHECK_INTERVAL)
             {
-                _target = Targeting.GetTarget(Bot.Player);
+                _target = GetValidTarget();
                 _targetCheckTimer = 0f;
             }
 
@@ -85,6 +86,16 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
         }
 
+        private Player GetValidTarget()
+        {
+            Player potentialTarget = Targeting.GetTarget(Bot.Player);
+
+            if (potentialTarget != null && HasLineOfSight(potentialTarget))
+                return potentialTarget;
+                
+            return null;
+        }
+
         private bool ShouldExitCombat()
         {
             if (_target == null || !_target.IsAlive || _target.Role == RoleTypeId.Spectator)
@@ -98,6 +109,9 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             float distance = Vector3.Distance(Bot.Player.Position, _target.Position);
             if (distance > 30f)
+                return true;
+
+            if (!HasLineOfSight(_target))
                 return true;
 
             return false;
@@ -154,7 +168,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         private void HandleCombat()
         {
             float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-            if (_target == null || !HasLineOfSight() || Bot.Player.HasEffect<Flashed>() || distanceToTarget > 2f)
+            if (_target == null || !HasLineOfSight(_target) || Bot.Player.HasEffect<Flashed>() || distanceToTarget > 2f)
                 return;
 
             _fireTimer -= Time.deltaTime;
@@ -168,24 +182,21 @@ namespace UncomplicatedCustomBots.API.Features.States
         /// <summary>
         /// Checks if the bot has a clear line of sight to its target.
         /// </summary>
+        /// <param name="target">The target to check line of sight to. If null, uses _target.</param>
         /// <returns>True if there are no obstructions, otherwise false.</returns>
-        private bool HasLineOfSight()
+        private bool HasLineOfSight(Player target = null)
         {
-            if (_target == null)
+            Player checkTarget = target ?? _target;
+            if (checkTarget == null)
                 return false;
 
             Vector3 botPosition = Bot.Player.Position + Vector3.up * 1.5f;
-            Vector3 targetPosition = _target.Position + Vector3.up * 1.5f;
+            Vector3 targetPosition = checkTarget.Position + Vector3.up * 1.5f;
             Vector3 direction = (targetPosition - botPosition).normalized;
             float distance = Vector3.Distance(botPosition, targetPosition);
 
-            if (Physics.Raycast(botPosition, direction, out RaycastHit hit, distance, HitregMask))
-            {
-                if (hit.transform.root == _target.ReferenceHub.transform.root)
-                    return true;
-
+            if (Physics.Raycast(botPosition, direction, out RaycastHit hit, distance, ObstacleMask))
                 return false;
-            }
 
             return true;
         }

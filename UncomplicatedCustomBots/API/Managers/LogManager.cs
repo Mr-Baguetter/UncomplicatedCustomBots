@@ -9,7 +9,6 @@ using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
 using UncomplicatedCustomBots.API.Interfaces;
-using Logger = LabApi.Features.Console.Logger;
 
 namespace UncomplicatedCustomBots.API.Managers
 {

@@ -1,21 +1,17 @@
-﻿using HarmonyLib;
+﻿global using Logger = LabApi.Features.Console.Logger;
+using HarmonyLib;
 using System;
-using System.IO;
 using System.Reflection;
 using UncomplicatedCustomBots.API.Managers;
-using UncomplicatedCustomBots.Events.Internal;
-using UnityEngine;
 using EventTarget = LabApi.Events.Handlers.ServerEvents;
 using PlayerEvents = UncomplicatedCustomBots.Events.Internal.PlayerEvents;
 using Server = UncomplicatedCustomBots.Events.Internal.Server;
-
 
 #if LABAPI
 using LabApi.Features.Wrappers;
 using LabApi.Loader;
 using LabApi.Loader.Features.Plugins;
 using LabApi.Loader.Features.Plugins.Enums;
-using LabApi.Loader;
 using LabApi.Events.Handlers;
 #elif EXILED
 using Exiled.API.Enums;
@@ -47,7 +43,7 @@ namespace UncomplicatedCustomBots
 
         public override Version Version { get; } = new(1, 0, 0);
 
-        public override string Author => "Mr. Baguetter";
+        public override string Author => "Mr. Baguetter & SpGerg";
 
         public static Plugin Instance;
 
@@ -57,7 +53,7 @@ namespace UncomplicatedCustomBots
 
         internal bool Prerelease { get; set; } = true;
 
-        internal Harmony _harmony;
+        internal HarmonyLib.Harmony _harmony;
 #if LABAPI
         public override void Enable()
         {
@@ -88,8 +84,8 @@ namespace UncomplicatedCustomBots
             _harmony = null;
             Instance = null;
 
-            Events.Internal.PlayerEvents.Unregister();
-            Events.Internal.Server.Unregister();
+            PlayerEvents.Unregister();
+            Server.Unregister();
             EventTarget.WaitingForPlayers -= OnWaitingForPlayers;
         }
 #elif EXILED
