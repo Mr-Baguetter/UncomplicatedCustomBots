@@ -1093,14 +1093,13 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 Vector3 to = waypoints[i + 1];
                 if (Vector3.Distance(from, to) < 0.3f)
                     continue;
-
-                Vector3 fromSnap = from, toSnap = to;
+                    
                 bool fromOnMesh = NavMesh.SamplePosition(from, out NavMeshHit fh, 1f, GetNavMeshAreaMask());
                 bool toOnMesh = NavMesh.SamplePosition(to, out NavMeshHit th, 1f, GetNavMeshAreaMask());
                 if (fromOnMesh && toOnMesh)
                 {
-                    fromSnap = fh.position;
-                    toSnap = th.position;
+                    Vector3 fromSnap = fh.position;
+                    Vector3 toSnap = th.position;
                     if (NavMesh.Raycast(fromSnap, toSnap, out NavMeshHit hit, GetNavMeshAreaMask()))
                     {
                         float distToHit = Vector3.Distance(fromSnap, hit.position);
@@ -1802,8 +1801,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (!NavMeshManager.IsBaked)
                 return false;
 
-            int mask = NavMeshManager.WalkableAreaMask;
-            return NavMesh.SamplePosition(point, out NavMeshHit hit, sampleRadius, mask) && Vector3.Distance(hit.position, point) <= sampleRadius;
+            return NavMesh.SamplePosition(point, out NavMeshHit hit, sampleRadius, NavMeshManager.WalkableAreaMask) && Vector3.Distance(hit.position, point) <= sampleRadius;
         }
 
         private Vector3 ComputeAvoidance(Vector3 position, Vector3 direction)
