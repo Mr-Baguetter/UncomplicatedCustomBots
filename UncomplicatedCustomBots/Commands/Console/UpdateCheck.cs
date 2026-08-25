@@ -1,17 +1,19 @@
 using CommandSystem;
 using System;
-using Newtonsoft.Json;
 using UncomplicatedCustomBots.API.Managers;
+using System.Text.Json.Serialization;
+using static UncomplicatedCustomBots.API.Managers.Updater;
+using MEC;
 
 namespace UncomplicatedCustomBots.Commands.Console
 {
     public class GitHubReleaseInfo
     {
-        [JsonProperty("tag_name")]
-        public string TagName { get; set; }
+        [JsonPropertyName("tag_name")]
+        public string TagName { get; set; } = string.Empty;
 
-        [JsonProperty("assets")]
-        public GitHubAssetInfo[] Assets { get; set; }
+        [JsonPropertyName("assets")]
+        public GitHubAssetInfo[] Assets { get; set; } = [];
     }
 
     [CommandHandler(typeof(GameConsoleCommandHandler))]
@@ -20,7 +22,7 @@ namespace UncomplicatedCustomBots.Commands.Console
         public UpdateCheck() => LoadGeneratedCommands();
 
         public override string Command { get; } = "ucbupdatecheck";
-        public override string[] Aliases { get; } = new string[] { "ucbcheckupdate" };
+        public override string[] Aliases { get; } = ["ucbcheckupdate"];
         public override string Description { get; } = "Checks if a new version of UncomplicatedCustomBots is available.";
 
         public override void LoadGeneratedCommands() { }
@@ -36,7 +38,7 @@ namespace UncomplicatedCustomBots.Commands.Console
             Version version = Plugin.Instance.Version;
             response = $"Currently running version {version}. Checking for updates...";
 
-            _ = Updater.CheckForUpdatesAsync();
+            Timing.RunCoroutine(Updater.CheckForUpdatesCoroutine());
             return true;
         }
     }

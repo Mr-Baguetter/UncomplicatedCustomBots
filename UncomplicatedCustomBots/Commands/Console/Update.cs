@@ -1,4 +1,5 @@
 using CommandSystem;
+using MEC;
 using System;
 using System.Linq;
 using UncomplicatedCustomBots.API.Managers;
@@ -11,7 +12,7 @@ namespace UncomplicatedCustomBots.Commands.Console
         public Update() => LoadGeneratedCommands();
 
         public override string Command { get; } = "ucbupdate";
-        public override string[] Aliases { get; } = { "ucbselfupdate" };
+        public override string[] Aliases { get; } = ["ucbselfupdate"];
         public override string Description { get; } = "Downloads and installs the latest version of UncomplicatedCustomBots, then restarts the server round.";
 
         public override void LoadGeneratedCommands() { }
@@ -24,9 +25,8 @@ namespace UncomplicatedCustomBots.Commands.Console
                 return false;
             }
 
-            Version version = Plugin.Instance.Version;
-            response = $"Attempting to update UncomplicatedCustomBots from version {version}. Check console for details.";
-            _ = Updater.UpdatePluginAsync(version, arguments.FirstOrDefault());
+            response = $"Attempting to update UncomplicatedCustomBots. Check console for details.";
+            Timing.RunCoroutine(Updater.UpdatePluginCoroutine(arguments.FirstOrDefault()));
             return true;
         }
     }

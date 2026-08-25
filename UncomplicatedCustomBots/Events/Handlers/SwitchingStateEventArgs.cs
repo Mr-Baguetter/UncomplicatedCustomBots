@@ -14,7 +14,7 @@ namespace UncomplicatedCustomBots.Events.Handlers
         /// <param name="bot">The bot instance that is attempting to switch states.</param>
         /// <param name="isAllowed">A value indicating whether the state switch is allowed to proceed.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="newState"/> or <paramref name="bot"/> is null.</exception>
-        public SwitchingStateEventArgs(API.Features.State oldState, API.Features.State newState, Bot bot, bool isAllowed)
+        public SwitchingStateEventArgs(API.Features.States.State oldState, API.Features.States.State newState, Bot bot, bool isAllowed)
         {
             OldState = oldState;
             NewState = newState ?? throw new ArgumentNullException(nameof(newState));
@@ -26,17 +26,17 @@ namespace UncomplicatedCustomBots.Events.Handlers
         /// Gets the current state of the bot before the switch.
         /// </summary>
         /// <value>
-        /// The current <see cref="API.Features.State"/> of the bot, or null if this is the initial state assignment.
+        /// The current <see cref="API.Features.States.State"/> of the bot, or null if this is the initial state assignment.
         /// </value>
-        public API.Features.State? OldState { get; }
+        public API.Features.States.State? OldState { get; }
 
         /// <summary>
         /// Gets the state that the bot is attempting to switch to.
         /// </summary>
         /// <value>
-        /// The target <see cref="API.Features.State"/> that the bot wants to switch to.
+        /// The target <see cref="API.Features.States.State"/> that the bot wants to switch to.
         /// </value>
-        public API.Features.State NewState { get; }
+        public API.Features.States.State NewState { get; }
 
         /// <summary>
         /// Gets the bot instance that is attempting to switch states.

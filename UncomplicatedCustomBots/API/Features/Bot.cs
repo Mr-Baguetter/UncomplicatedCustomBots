@@ -1,22 +1,13 @@
 ﻿using LabApi.Features.Wrappers;
-using LabApi.Loader.Features.Paths;
 using MEC;
 using NetworkManagerUtils.Dummies;
 using PlayerRoles;
-using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Enums;
 using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Features.States;
-using UncomplicatedCustomBots.API.Interfaces;
 using UncomplicatedCustomBots.API.Managers;
 using UncomplicatedCustomBots.Events.Handlers;
-using Unity.Mathematics;
-using UnityEngine;
+using UnityEngine.AI;
 
 namespace UncomplicatedCustomBots.API.Features
 {
@@ -24,40 +15,88 @@ namespace UncomplicatedCustomBots.API.Features
     {
         public static readonly List<Player> PlayerList = [];
         public static readonly List<Bot> BotList = [];
+        private static readonly Dictionary<int, Bot> BotByPlayerId = [];
         private static readonly System.Random random = new();
+        private static readonly object _randomLock = new();
+        private static readonly object _botListLock = new();
+        public BotRadius? BotDetectionRadius { get; set; }
+
+        private static void RegisterBot(Bot bot)
+        {
+            lock (_botListLock)
+            {
+                PlayerList.Add(bot.Player);
+                BotList.Add(bot);
+                if (bot.Player != null)
+                    BotByPlayerId[bot.Player.PlayerId] = bot;
+            }
+        }
+
+        private static void UnregisterBot(Bot bot)
+        {
+            lock (_botListLock)
+            {
+                PlayerList.Remove(bot.Player);
+                BotList.Remove(bot);
+                if (bot.Player != null)
+                    BotByPlayerId.Remove(bot.Player.PlayerId);
+            }
+        }
+
+        public static bool TryGetByPlayerId(int playerId, out Bot bot)
+        {
+            lock (_botListLock)
+            {
+                return BotByPlayerId.TryGetValue(playerId, out bot!);
+            }
+        }
+
+        public static Bot[] SnapshotBotList()
+        {
+            lock (_botListLock)
+            {
+                return BotList.ToArray();
+            }
+        }
+
+        public static Player[] SnapshotPlayerList()
+        {
+            lock (_botListLock)
+            {
+                return PlayerList.ToArray();
+            }
+        }
 
         public Bot()
         {
-            string randomName = Plugin.Instance.Config.Names[random.Next(Plugin.Instance.Config.Names.Count)];
-            ReferenceHub hub = DummyUtils.SpawnDummy(randomName);
-            Player player = Player.Get(hub);
+            string randomName;
+            lock (_randomLock)
+            {
+                randomName = Plugin.Instance.Config.Names[random.Next(Plugin.Instance.Config.Names.Count)];
+            }
 
-            Player = player;
+            ReferenceHub hub = DummyUtils.SpawnDummy(randomName) ?? throw new System.InvalidOperationException($"Failed to spawn dummy '{randomName}'");
+            Player = Player.Get(hub) ?? throw new System.InvalidOperationException($"Player.Get returned null for dummy '{randomName}'");
 
-            PlayerList.Add(player);
-            BotList.Add(this);
+            RegisterBot(this);
 
-            Scenario = Scenario.Create(player.Role);
-
-            ChangeRole(player.Role);
-
-            Player.GameObject.AddComponent<BotComponent>().Initialize(this);
+            Player.GameObject!.AddComponent<BotComponent>().Initialize(this);
+            BotDetectionRadius = Player.GameObject!.AddComponent<BotRadius>();
+            BotDetectionRadius?.Init(this);
         }
 
         public Bot(ReferenceHub hub)
         {
-            Player player = Player.Get(hub);
+            if (hub == null)
+                throw new System.ArgumentNullException(nameof(hub));
+                
+            Player = Player.Get(hub) ?? throw new System.InvalidOperationException("Player.Get returned null for provided hub");
 
-            Player = player;
+            RegisterBot(this);
 
-            PlayerList.Add(player);
-            BotList.Add(this);
-
-            Scenario = Scenario.Create(player.Role);
-
-            ChangeRole(player.Role);
-
-            Player.GameObject.AddComponent<BotComponent>().Initialize(this);
+            Player.GameObject!.AddComponent<BotComponent>().Initialize(this);
+            BotDetectionRadius = Player.GameObject!.AddComponent<BotRadius>();
+            BotDetectionRadius?.Init(this);
         }
 
         public void Start()
@@ -73,21 +112,20 @@ namespace UncomplicatedCustomBots.API.Features
             Timing.CallDelayed(Timing.WaitForOneFrame, () => State?.Enter());
         }
 
-        public void ChangeRole(RoleTypeId roleTypeId) => Scenario = Scenario.Create(roleTypeId);
-
         public void RemoveGroup(Player player) => player.UserGroup = null;
 
-        public void ChangeState(State newState)
+        public void ChangeState(States.State newState)
         {
             SwitchingStateEventArgs switchingEventArgs = new(State, newState, this, true);
             Events.Handlers.State.OnStateSwitching(switchingEventArgs);
             if (!switchingEventArgs.IsAllowed)
                 return;
-                
-            State?.Exit();
+                 
+            States.State oldState = State;
+            oldState?.Exit();
             State = newState;
             State?.Enter();
-            SwitchedStateEventArgs switchedEventArgs = new(State, newState, this);
+            SwitchedStateEventArgs switchedEventArgs = new(oldState!, newState, this);
             Events.Handlers.State.OnStateSwitched(switchedEventArgs);
         }
 
@@ -95,27 +133,65 @@ namespace UncomplicatedCustomBots.API.Features
         {
             State?.Exit();
 
-            if (Player != null && PlayerList.Contains(Player))
-                PlayerList.Remove(Player);
+            Context.ClearMemory();
 
-            if (BotList.Contains(this))
-                BotList.Remove(this);
+            if (Player != null)
+                SquadManager.RemoveFromSquad(this);
 
-            BotComponent botComponent = Player?.GameObject?.GetComponent<BotComponent>();
+            if (Objective.ActiveObjectives.Count > 0)
+            {
+                uint? toRemove = null;
+                foreach (KeyValuePair<uint, Objective> kv in Objective.Objectives)
+                {
+                    if (kv.Value.Bot == this)
+                    {
+                        toRemove = kv.Key;
+                        break;
+                    }
+                }
+                if (toRemove.HasValue)
+                    Objective.Objectives.Remove(toRemove.Value);
+            }
+
+            UnregisterBot(this);
+
+            BotComponent? botComponent = Player?.GameObject?.GetComponent<BotComponent>();
             if (botComponent != null)
                 UnityEngine.Object.Destroy(botComponent);
 
-            Navigation navigation = Player?.GameObject?.GetComponent<Navigation>();
+            Navigation? navigation = Player?.GameObject?.GetComponent<Navigation>();
             if (navigation != null)
                 UnityEngine.Object.Destroy(navigation);
+
+            NavMeshAgent? agent = Player?.GameObject?.GetComponent<NavMeshAgent>();
+            if (agent != null)
+                UnityEngine.Object.Destroy(agent);
+
+            BotRadius? radius = Player?.GameObject?.GetComponent<BotRadius>();
+            if (radius != null)
+                UnityEngine.Object.Destroy(radius);
+
+            Targeting.RemoveBot(this);
         }
 
         public void Update() => State?.Update();
 
-        public Player Player { get; private set; }
+        public Player Player { get; set; }
 
-        public State State { get; private set; }
+        public BotContext Context { get; } = new();
 
-        public Scenario Scenario { get; private set; }
+        public States.State State { get; private set; } = null!;
+
+        public int SquadId { get; set; } = -1;
+
+        public bool IsInSquad => SquadId >= 0;
+
+        public bool IsMtf => Player.Role == RoleTypeId.NtfCaptain || Player.Role ==  RoleTypeId.NtfSergeant || Player.Role == RoleTypeId.NtfSpecialist || Player.Role == RoleTypeId.NtfPrivate;
+
+        public bool IsChaos => Player.Team == Team.ChaosInsurgency;
+
+        public bool IsGuard => Player.Role == RoleTypeId.FacilityGuard;
+
+        public bool IsSquadBot => IsMtf || IsChaos || IsGuard;
     }
 }

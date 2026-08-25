@@ -1,25 +1,16 @@
 ﻿using CommandSystem.Commands.RemoteAdmin.Dummies;
 using CustomPlayerEffects;
-using InventorySystem.Items.Firearms.Modules;
-using InventorySystem.Items.Usables;
 using LabApi.Features.Wrappers;
-using PlayerRoles;
-using PlayerRoles.FirstPersonControl;
-using RelativePositioning;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Managers;
+using PlayerRoles.PlayableScps.Scp049.Zombies;
+using UncomplicatedCustomBots.API.Extensions;
+using UncomplicatedCustomBots.API.Features.Components;
 using UnityEngine;
-using UnityEngine.UIElements;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
     internal class Scp0492State : State
     {
-        private Player _target;
+        private Player _target = null!;
         private float _fireTimer = 0f;
         private readonly float _optimalDistance = 1f;
         LayerMask ObstacleMask = LayerMask.GetMask("Default", "Door", "Glass", "Fence", "CCTV");
@@ -27,32 +18,32 @@ namespace UncomplicatedCustomBots.API.Features.States
         private readonly float _combatSpeed = 13.5f;
         private float _targetCheckTimer = 0f;
         private const float TARGET_CHECK_INTERVAL = 0.5f;
-        private float _stateChangeTimer = 0f;
-        private float _noTargetSightTimer = 0f;
         private readonly Player SCP049;
+        private readonly ZombieRole zombie;
+        private readonly ZombieAttackAbility attackModule;
 
         public Scp0492State(Bot bot, Player scp049, float speed = 13.5f) : base(bot)
         {
             SCP049 = scp049;
             _combatSpeed = speed;
+            zombie = (Bot.Player.RoleBase as ZombieRole)!;
+            zombie.SubroutineModule.TryGetSubroutine(out attackModule);
         }
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
+            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
             {
                 nav.StopNavigation();
                 nav.enabled = false;
             }
 
-            if (!Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower))
+            if (!Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
                 follower = Bot.Player.GameObject.AddComponent<PlayerFollower>();
 
             follower.enabled = true;
-            follower.Init(SCP049.ReferenceHub);
-
-            _stateChangeTimer = 0f;
-            _noTargetSightTimer = 0f;
+            if (SCP049 != null)
+                follower.Init(SCP049.ReferenceHub);
         }
 
         public override void Update()
@@ -66,7 +57,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_target != null && !ShouldExitCombat())
             {
-                if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower) && follower.enabled)
+                if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower) && follower.enabled)
                     follower.enabled = false;
                     
                 HandleCombatMovement();
@@ -74,7 +65,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
             else
             {
-                if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower))
+                if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
                 {
                     if (!follower.enabled)
                     {
@@ -88,30 +79,20 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private Player GetValidTarget()
         {
-            Player potentialTarget = Targeting.GetTarget(Bot.Player);
+            Player? potentialTarget = Targeting.GetTarget(Bot);
 
-            if (potentialTarget != null && HasLineOfSight(potentialTarget))
+            if (potentialTarget != null && Bot.HasLineOfSight(potentialTarget, ObstacleMask, allowTargetHit: false))
                 return potentialTarget;
                 
-            return null;
+            return null!;
         }
 
         private bool ShouldExitCombat()
         {
-            if (_target == null || !_target.IsAlive || _target.Role == RoleTypeId.Spectator)
+            if (!Bot.IsValidCombatTarget(_target))
                 return true;
 
-            if (_target.Faction == Bot.Player.Faction)
-                return true;
-
-            if (_target.Role == RoleTypeId.Tutorial && !Plugin.Instance.Config.AttackTutorials)
-                return true;
-
-            float distance = Vector3.Distance(Bot.Player.Position, _target.Position);
-            if (distance > 30f)
-                return true;
-
-            if (!HasLineOfSight(_target))
+            if (!Bot.HasLineOfSight(_target, ObstacleMask, allowTargetHit: false))
                 return true;
 
             return false;
@@ -119,95 +100,27 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void HandleCombatMovement()
         {
-            if (_target == null || !(Bot.Player.RoleBase is IFpcRole fpcRole))
-                return;
-
-            Vector3 botPosition = Bot.Player.Position;
-            Vector3 targetPosition = _target.Position;
-
-            Vector3 directionToTarget = targetPosition - botPosition;
-            float distance = directionToTarget.magnitude;
-            directionToTarget.Normalize();
-
-            fpcRole.FpcModule.MouseLook.LookAtDirection(directionToTarget);
-            Vector3 moveDirection = Vector3.zero;
-
-            if (distance > _optimalDistance)
-            {
-                moveDirection = directionToTarget;
-            }
-            else if (distance < _tooCloseDistance)
-            {
-                moveDirection = -directionToTarget;
-            }
-
-            if (moveDirection != Vector3.zero)
-            {
-                moveDirection.y = 0;
-                if (moveDirection.sqrMagnitude > 0.01f)
-                {
-                    moveDirection.Normalize();
-                    Vector3 newPosition = botPosition + moveDirection * _combatSpeed * Time.deltaTime;
-
-                    if (IsValidPosition(newPosition))
-                    {
-                        fpcRole.FpcModule.Motor.ReceivedPosition = new RelativePosition(newPosition);
-                    }
-                }
-            }
-        }
-
-        private bool IsValidPosition(Vector3 position)
-        {
-            if (Physics.Raycast(position + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 5f))
-                return hit.distance < 3f;
-
-            return false;
+            Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
         }
 
         private void HandleCombat()
         {
             float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-            if (_target == null || !HasLineOfSight(_target) || Bot.Player.HasEffect<Flashed>() || distanceToTarget > 2f)
+            if (_target == null || !Bot.HasLineOfSight(_target, ObstacleMask, allowTargetHit: false) || Bot.Player.HasEffect<Flashed>() || distanceToTarget > 2f)
                 return;
 
             _fireTimer -= Time.deltaTime;
             if (_fireTimer <= 0f)
-            {
-                SilentCommandSender silentSender = new();
-                Server.RunCommand($"/dummy action {Bot.Player.PlayerId} ZombieAttackAbility Shoot->Click", silentSender);
-            }
-        }
-
-        /// <summary>
-        /// Checks if the bot has a clear line of sight to its target.
-        /// </summary>
-        /// <param name="target">The target to check line of sight to. If null, uses _target.</param>
-        /// <returns>True if there are no obstructions, otherwise false.</returns>
-        private bool HasLineOfSight(Player target = null)
-        {
-            Player checkTarget = target ?? _target;
-            if (checkTarget == null)
-                return false;
-
-            Vector3 botPosition = Bot.Player.Position + Vector3.up * 1.5f;
-            Vector3 targetPosition = checkTarget.Position + Vector3.up * 1.5f;
-            Vector3 direction = (targetPosition - botPosition).normalized;
-            float distance = Vector3.Distance(botPosition, targetPosition);
-
-            if (Physics.Raycast(botPosition, direction, out RaycastHit hit, distance, ObstacleMask))
-                return false;
-
-            return true;
+                BotExtensions.TryRunRoleAction(attackModule, ActionName.Shoot, true);
         }
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
+            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
             {
                 nav.enabled = true;
             }
-            if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out var follower))
+            if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
             {
                 follower.enabled = false;
             }

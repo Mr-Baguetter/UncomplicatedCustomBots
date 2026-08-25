@@ -1,15 +1,9 @@
 ﻿using CommandSystem;
 using LabApi.Features.Wrappers;
-using MapGeneration;
-using MEC;
-using NetworkManagerUtils.Dummies;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features;
+using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Features.States;
 using UncomplicatedCustomBots.API.Interfaces;
 
@@ -27,25 +21,31 @@ namespace UncomplicatedCustomBots.Commands.Admin
 
         public bool Execute(List<string> arguments, ICommandSender sender, out string response)
         {
-            Player player = Player.Get(int.Parse(arguments[0]));
+            if (!int.TryParse(arguments[0], out int playerId))
+            {
+                response = "Invalid player id!";
+                return false;
+            }
+
+            Player? player = Player.Get(playerId);
             if (player == null)
             {
                 response = "Player not found!";
                 return false;
             }
-            if (!player.GameObject.TryGetComponent<Navigation>(out var nav))
+            Bot bot = player.GetBot();
+            if (bot == null)
             {
-                Navigation addednav = player.GameObject.AddComponent<Navigation>();
-                addednav.Init();
-                response = $"Started {player.PlayerId} sucessfuly!";
-                return true;
+                response = "Player is not a bot!";
+                return false;
             }
 
-            Bot bot = player.GetBot();
+            if (!player.GameObject!.TryGetComponent<Navigation>(out var nav))
+                nav = player.GameObject!.AddComponent<Navigation>();
 
-            bot.ChangeState(new WalkingState(bot));
             nav.Init();
-            response = $"Started {player.PlayerId} sucessfuly!";
+            bot.ChangeState(new WalkingState(bot));
+            response = $"Started {player.PlayerId} successfully!";
             return true;
         }
     }

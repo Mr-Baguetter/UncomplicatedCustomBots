@@ -1,12 +1,6 @@
 ﻿using CommandSystem;
-using LabApi.Features.Wrappers;
-using MEC;
 using NetworkManagerUtils.Dummies;
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using UncomplicatedCustomBots.API.Features;
 using UncomplicatedCustomBots.API.Interfaces;
 
@@ -24,12 +18,13 @@ namespace UncomplicatedCustomBots.Commands.Admin
 
         public bool Execute(List<string> arguments, ICommandSender sender, out string response)
         {
-            ReferenceHub npc = DummyUtils.SpawnDummy($"{arguments[1]}");
+            string botName = arguments.Count > 0 ? arguments[0] : "Bot";
+            ReferenceHub npc = DummyUtils.SpawnDummy(botName);
             Bot bot = new(npc);
             bot.Start();
 
-            response = string.Empty;
-            return false;
+            response = $"Spawned bot {botName}!";
+            return true;
         }
     }
 }

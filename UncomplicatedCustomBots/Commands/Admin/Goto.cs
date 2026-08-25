@@ -1,15 +1,10 @@
 using CommandSystem;
 using LabApi.Features.Wrappers;
 using MapGeneration;
-using MEC;
-using NetworkManagerUtils.Dummies;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Features;
-using UncomplicatedCustomBots.API.Features.States;
+using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Interfaces;
 
 namespace UncomplicatedCustomBots.Commands.Admin
@@ -26,18 +21,26 @@ namespace UncomplicatedCustomBots.Commands.Admin
 
         public bool Execute(List<string> arguments, ICommandSender sender, out string response)
         {
-            Player player = Player.Get(int.Parse(arguments[0]));
+            if (!int.TryParse(arguments[0], out int playerId))
+            {
+                response = "Invalid player id!";
+                return false;
+            }
+
+            Player? player = Player.Get(playerId);
             if (player == null)
             {
                 response = "Player not found!";
                 return false;
             }
-            if (!player.GameObject.TryGetComponent<Navigation>(out var nav))
+
+            if (!player.GameObject!.TryGetComponent<Navigation>(out var nav))
             {
                 response = "Player is not a bot!";
                 return false;
             }
-            if (!Enum.TryParse<RoomName>(arguments[2], out RoomName roomName))
+
+            if (!Enum.TryParse(arguments[1], out RoomName roomName))
             {
                 response = $"{arguments[1]} is not a valid room!";
                 return false;

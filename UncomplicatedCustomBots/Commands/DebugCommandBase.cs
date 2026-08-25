@@ -27,6 +27,8 @@ namespace UncomplicatedCustomBots.Commands
             Subcommands.Add(new DebugUI());
             Subcommands.Add(new RoomChildren());
             Subcommands.Add(new RoomBounds());
+            Subcommands.Add(new BotUI());
+            Subcommands.Add(new DrawPath());
         }
 
         private List<ISubcommand> Subcommands { get; } = [];

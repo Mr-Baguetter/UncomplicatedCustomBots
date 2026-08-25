@@ -1,43 +1,59 @@
-﻿using LabApi.Features.Console;
-using LabApi.Features.Wrappers;
-using MapGeneration.Distributors;
-using System;
+﻿using LabApi.Features.Wrappers;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Features;
 using UnityEngine;
-using UncomplicatedCustomBots.API.Managers;
 
 namespace UncomplicatedCustomBots.API.Extensions
 {
     public static class RoomExtensions
     {
-        public static RoomNode GetRoomNode(this Room rome)
-        {
-            foreach (RoomNode roomNode in RoomNode.List)
-            {
-                if (roomNode.Room != rome)
-                    continue;
+        private static HashSet<string> _blacklistCache = [];
+        private static int _blacklistCacheHash = -1;
 
-                return roomNode;
+        private static HashSet<string> GetBlacklistSet()
+        {
+            List<string> blacklist = Plugin.Instance.Config.BlacklistedRooms;
+            int hash = blacklist.Count;
+            if (_blacklistCacheHash != hash || _blacklistCache.Count != hash)
+            {
+                _blacklistCache = new(blacklist);
+                _blacklistCacheHash = hash;
             }
 
-            return null;
+            return _blacklistCache;
         }
 
         public static Room GetRandomRoomByBlacklist()
         {
-            List<Room> roomList = Room.List.Where(r => !Plugin.Instance.Config.BlacklistedRooms.Contains(r.GameObject.name)).ToList();
-            
-            if (roomList.Count == 0)
-                return null;
+            HashSet<string> blacklist = GetBlacklistSet();
+            List<Room> candidates = [];
+            List<Room> fallback = [];
 
-            return roomList[UnityEngine.Random.Range(0, roomList.Count)];
+            foreach (Room room in Room.List)
+            {
+                if (room == null || blacklist.Contains(room.GameObject.name))
+                    continue;
+
+                if (room.Name == MapGeneration.RoomName.Unnamed || room.Zone == MapGeneration.FacilityZone.Other)
+                {
+                    fallback.Add(room);
+                }
+                else
+                    candidates.Add(room);
+            }
+
+            List<Room> pool = candidates.Count > 0 ? candidates : fallback;
+            if (pool.Count == 0)
+                return null!;
+
+            return pool[Random.Range(0, pool.Count)];
         }
 
-        public static Room GetRandomRoom() => Room.List.ToList().RandomItem();
+        public static Room GetRandomRoom()
+        {
+            List<Room> all = Room.List.ToList();
+            return all.Count > 0 ? all[Random.Range(0, all.Count)] : null!;
+        }
 
         public static List<GameObject> GetChildren(this Room room)
         {

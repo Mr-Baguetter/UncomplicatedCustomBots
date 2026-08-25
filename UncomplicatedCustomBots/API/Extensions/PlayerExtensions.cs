@@ -1,7 +1,5 @@
-using System.Linq;
 using LabApi.Features.Wrappers;
 using UncomplicatedCustomBots.API.Features;
-using UncomplicatedCustomBots.API.Features.States;
 
 namespace UncomplicatedCustomBots.API.Extensions
 {
@@ -9,18 +7,28 @@ namespace UncomplicatedCustomBots.API.Extensions
     {
         public static bool IsBot(this Player player)
         {
-            foreach (Bot bot in Bot.BotList.Where(b => b.Player == player))
-                return true;
+            if (player == null)
+                return false;
 
-            return false;
+            return Bot.TryGetByPlayerId(player.PlayerId, out _);
         }
 
         public static bool TryGetBot(this Player player, out Bot bot)
         {
-            bot = GetBot(player);
-            return bot != null;
+            bot = null!;
+            if (player == null)
+                return false;
+
+            return Bot.TryGetByPlayerId(player.PlayerId, out bot);
         }
 
-        public static Bot GetBot(this Player player) => Bot.BotList.Where(b => b.Player == player).FirstOrDefault();
+        public static Bot GetBot(this Player player)
+        {
+            if (player == null)
+                return null!;
+                
+            Bot.TryGetByPlayerId(player.PlayerId, out Bot bot);
+            return bot!;
+        }
     }
 }

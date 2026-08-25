@@ -1,6 +1,6 @@
 ﻿using Discord;
-using Newtonsoft.Json;
 using System;
+using System.Text.Json.Serialization;
 
 namespace UncomplicatedCustomBots.API.Managers
 {
@@ -21,12 +21,10 @@ namespace UncomplicatedCustomBots.API.Managers
         /// </summary>
         public string Content { get; }
 
-#nullable enable
         /// <summary>
         /// Gets the custom error code of the message - can be null!
         /// </summary>
         public string? Error { get; }
-#nullable disable
 
         /// <summary>
         /// Gets the instance of the Error as string
@@ -37,7 +35,7 @@ namespace UncomplicatedCustomBots.API.Managers
         public DateTimeOffset DateTimeOffset => DateTimeOffset.FromUnixTimeMilliseconds(Time);
 
         [JsonConstructor]
-        public LogEntry(long time, string level, string content, string error = null)
+        public LogEntry(long time, string level, string content, string? error = null)
         {
             Time = time;
             Level = level;
@@ -45,7 +43,7 @@ namespace UncomplicatedCustomBots.API.Managers
             Error = error;
         }
 
-        public LogEntry(long time, LogLevel level, string content, string error = null) : this(time, level.ToString(), content, error) { }
+        public LogEntry(long time, LogLevel level, string content, string? error = null) : this(time, level.ToString(), content, error) { }
 
         public override string ToString() => $"[{DateTimeOffset.Year}-{DateTimeOffset.Month}-{DateTimeOffset.Day} {DateTimeOffset.Hour}:{DateTimeOffset.Minute}:{DateTimeOffset.Second} {DateTimeOffset.Offset}]  [{Level}]  [UncomplicatedCustomBots] {PublicError}{Content}";
     }

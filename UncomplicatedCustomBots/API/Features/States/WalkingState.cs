@@ -2,26 +2,22 @@
 using MapGeneration;
 using PlayerRoles;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using UncomplicatedCustomBots.API.Enums;
-using UncomplicatedCustomBots.API.Interfaces;
-using Unity.IO.LowLevel.Unsafe;
+using UncomplicatedCustomBots.API.Struct;
 using UnityEngine;
-using InventorySystem.Items.Pickups;
-using InventorySystem.Items;
 using UncomplicatedCustomBots.API.Managers;
 using PlayerRoles.PlayableScps.Scp3114;
 using UncomplicatedCustomBots.Events.Handlers;
-using MEC;
 using LabApi.Features.Extensions;
+using System.Collections.Generic;
+using UncomplicatedCustomBots.API.Features.Components;
+using PlayerRoles.FirstPersonControl;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
-    public class WalkingState : State
+    internal class WalkingState : State
     {
+        private static readonly Pickup[] _pickupSnapshotBuffer = new Pickup[32];
+
         internal readonly Navigation _navigator;
         private float _idleTimer = 0.0f;
         private bool _isWaiting = false;
@@ -29,21 +25,41 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _detectionAngle = 120f;
         private float _detectionCheckInterval = 0.2f;
         private float _detectionTimer = 0f;
-        private Player _lastDetectedTarget = null;
-        LayerMask HitregMask = ~LayerMask.GetMask("Door", "Glass", "Fence", "CCTV");
+        private Player _lastDetectedTarget = null!;
         private float _lastDetectionTime = 0f;
+        private float _itemCheckTimer = 0f;
+        private float _squadRegroupTimer = 0f;
+        private const float ITEM_CHECK_INTERVAL = 0.5f;
+        private const float SENSED_EVENT_MEMORY = 5f;
+        private const float GrenadeFleeRange = 10f;
+        private const float SQUAD_REGROUP_CHECK_INTERVAL = 2f;
+        private const float SQUAD_REGROUP_MIN_DISTANCE = 5f;
 
         public WalkingState(Bot bot) : base(bot)
         {
-            if (!bot.Player.GameObject.TryGetComponent<Navigation>(out _navigator))
-                _navigator = bot.Player.GameObject.AddComponent<Navigation>();
+            _navigator = bot.Player.GameObject!.GetComponent<Navigation>();
+            if (_navigator == null)
+            {
+                _navigator = bot.Player.GameObject!.AddComponent<Navigation>();
+            }
             else
                 _navigator.enabled = true;
         }
 
         public override void Enter()
         {
-            _navigator.Init(speed: 18f, enablePatrol: false);
+            if (Bot.Player.RoleBase is IFpcRole fpc)
+            {
+                float patrolSpeed = fpc.FpcModule.WalkSpeed * 1.7f;
+
+                if (fpc.FpcModule.SprintSpeed > patrolSpeed)
+                    patrolSpeed = fpc.FpcModule.SprintSpeed;
+
+                patrolSpeed = Mathf.Clamp(patrolSpeed, 6f, 10f);
+                _navigator.Init(speed: patrolSpeed, enablePatrol: false);
+            }
+            else
+                _navigator.Init(speed: 18f, enablePatrol: false);
         }
 
         public override void Update()
@@ -57,93 +73,116 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
 
             if (Bot.Player.Role == RoleTypeId.Scp0492)
-                Bot.ChangeState(new Scp0492State(Bot, Player.ReadyList.Where(p => p.Role == RoleTypeId.Scp049).FirstOrDefault()));
-
-            Player scpTarget = DetectScpTarget();
-            if (scpTarget != null && Bot.Player.Health < 30)
             {
-                Bot.ChangeState(new FleeState(Bot, scpTarget));
+                Player? scp049 = null;
+                foreach (Player p in Player.ReadyList)
+                {
+                    if (p.Role == RoleTypeId.Scp049)
+                    {
+                        scp049 = p;
+                        break;
+                    }
+                }
+
+                if (scp049 != null)
+                {
+                    Bot.ChangeState(new Scp0492State(Bot, scp049));
+                }
+                else
+                    LogManager.Debug($"Bot {Bot.Player.DisplayName} is SCP-049-2 but no SCP-049 found, staying in WalkingState");
+                    
                 return;
             }
 
             if (_detectionTimer >= _detectionCheckInterval)
             {
-                Player combatTarget = DetectCombatTarget();
-                if (combatTarget != null && Bot.Player.Team != Team.SCPs)
+                _detectionTimer = 0f;
+
+                bool inElevator = _navigator.IsInsideElevatorChamber || _navigator.IsWalkingIntoElevator || _navigator.IsWaitingForElevator || _navigator.IsWaitingToEnterElevator;
+
+                Player? scpTarget = DetectScpTarget();
+                if (scpTarget != null && Bot.Player.Health < 30 && !inElevator)
+                {
+                    Bot.ChangeState(new FleeState(Bot, scpTarget));
+                    return;
+                }
+
+                Player? combatTarget = DetectCombatTarget();
+                if (combatTarget != null && Bot.Player.Team != Team.SCPs && !inElevator)
                 {
                     Bot.ChangeState(new CombatState(Bot));
                     return;
                 }
 
-                if (combatTarget != null)
+                if (combatTarget != null && !inElevator)
                 {
                     float distance = Vector3.Distance(Bot.Player.Position, combatTarget.Position);
                     bool hasLineOfSight = HasLineOfSight(combatTarget);
                     switch (Bot.Player.Role)
                     {
                         case RoleTypeId.Scp049:
-                            if (distance < 15f && hasLineOfSight)
+                            if (distance < 25f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp049State(Bot));
                                 return;
                             }
                             break;
+
                         case RoleTypeId.Scp106:
-                            if (distance < 15f && hasLineOfSight)
+                            if (distance < 25f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp106State(Bot));
                                 return;
                             }
                             break;
+
                         case RoleTypeId.Scp939:
-                            if (distance < 15f && hasLineOfSight)
+                            if (distance < 25f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp939State(Bot));
                                 return;
                             }
                             break;
+
                         case RoleTypeId.Scp173:
-                            if (distance < 15f && hasLineOfSight)
+                            if (distance < 25f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp173State(Bot));
                                 return;
                             }
                             break;
+
                         case RoleTypeId.Scp3114:
-                            Scp3114Role scp3114 = Bot.Player.RoleBase as Scp3114Role;
-                            if (distance < 15f && hasLineOfSight && !scp3114.Disguised)
+                            Scp3114Role scp3114 = (Bot.Player.RoleBase as Scp3114Role)!;
+                            if (distance < 25f && hasLineOfSight && !scp3114.Disguised)
                             {
                                 Bot.ChangeState(new Scp3114State(Bot));
                                 return;
                             }
                             break;
-                        case RoleTypeId.Scp096: // 096 wont be supported. Really annoying to setup.
-                            Timing.CallDelayed(Timing.WaitForOneFrame, () => Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart));
-                            break;
-                        case RoleTypeId.Scp079: // 079 wont be supported. Cant communicate to other SCPs without being overpowered or annoying to other SCPs.
-                            Timing.CallDelayed(Timing.WaitForOneFrame, () => Bot.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart));
-                            break;
+
                         default:
                             if (Bot.Player.Faction == Faction.SCP)
                                 LogManager.Warn($"{Bot.Player.Nickname} - {Bot.Player.PlayerId} - {Bot.Player.Role.GetFullName()} is not a recognized SCP!");
                             break;
                     }
                 }
-                _detectionTimer = 0f;
             }
 
             CheckForItems();
+            InvestigateSensedEvents();
+
+            if (HandleSquadGrouping())
+                return;
 
             HandleNavigation();
         }
 
-        /// <summary>
-        /// Detects SCP targets using both proximity and line of sight
-        /// </summary>
-        private Player DetectScpTarget()
+        private Player? DetectScpTarget()
         {
-            Player scpTarget = Targeting.GetScpTarget(Bot.Player);
-            if (scpTarget == null) return null;
+            Player? scpTarget = Targeting.GetScpTarget(Bot);
+            if (scpTarget == null)
+                return null;
 
             float distance = Vector3.Distance(Bot.Player.Position, scpTarget.Position);
             if (distance < 15f && HasLineOfSight(scpTarget))
@@ -152,9 +191,9 @@ namespace UncomplicatedCustomBots.API.Features.States
             return null;
         }
         
-        private Player DetectCombatTarget()
+        private Player? DetectCombatTarget()
         {
-            Player potentialTarget = Targeting.GetTarget(Bot.Player);
+            Player? potentialTarget = Targeting.GetTarget(Bot);
             if (potentialTarget == null)
                 return null;
 
@@ -186,9 +225,6 @@ namespace UncomplicatedCustomBots.API.Features.States
             return null;
         }
 
-        /// <summary>
-        /// Checks if target is within the bot's field of view
-        /// </summary>
         private bool IsTargetInFieldOfView(Player target)
         {
             Vector3 botPosition = Bot.Player.Position;
@@ -202,7 +238,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         private bool HasLineOfSight(Player target)
         {
             Vector3 botCamera = Bot.Player.Camera.position;
-            Vector3 toTarget = (target.Position - botCamera);
+            Vector3 toTarget = target.Position - botCamera;
             float distance = toTarget.magnitude;
 
             if (distance > 50f)
@@ -214,46 +250,85 @@ namespace UncomplicatedCustomBots.API.Features.States
                 return false;
 
             Vector3 targetCenter = target.Position + Vector3.up * 1.0f;
-
-            Vector3[] targetPoints =
-            [
-                targetCenter,
-                targetCenter + Vector3.left * 0.3f,
-                targetCenter + Vector3.right * 0.3f,
-                targetCenter + Vector3.up * 0.5f,
-                targetCenter + Vector3.down * 0.5f
-            ];
-
+            Transform targetRoot = target.ReferenceHub.transform.root;
             int visiblePoints = 0;
 
-            foreach (Vector3 point in targetPoints)
+            for (int i = 0; i < 5; i++)
             {
+                Vector3 offset = i switch
+                {
+                    0 => Vector3.zero,
+                    1 => Vector3.left * 0.3f,
+                    2 => Vector3.right * 0.3f,
+                    3 => Vector3.up * 0.5f,
+                    _ => Vector3.down * 0.5f,
+                };
+
+                Vector3 point = targetCenter + offset;
                 Vector3 dir = (point - botCamera).normalized;
                 float dist = Vector3.Distance(botCamera, point);
 
                 if (Physics.Raycast(botCamera, dir, out RaycastHit hit, dist, PlayerRolesUtils.LineOfSightMask))
                 {
-                    if (hit.transform.root == target.ReferenceHub.transform.root)
+                    if (hit.transform.root == targetRoot)
+                    {
                         visiblePoints++;
+                    }
                     else if (Vector3.Distance(hit.point, point) < 0.8f)
                         visiblePoints++;
                 }
                 else
-                {
                     visiblePoints++;
-                }
             }
 
             return visiblePoints >= 2;
         }
 
-        /// <summary>
-        /// Handle navigation and idle behavior
-        /// </summary>
+        private bool HandleSquadGrouping()
+        {
+            if (!Bot.IsSquadBot || !Bot.IsInSquad)
+                return false;
+
+            _squadRegroupTimer += Time.deltaTime;
+            if (_squadRegroupTimer < SQUAD_REGROUP_CHECK_INTERVAL)
+                return false;
+
+            _squadRegroupTimer = 0f;
+
+            List<Bot> squadmates = SquadManager.GetSquadmates(Bot);
+            if (squadmates.Count == 0)
+                return false;
+
+            Vector3 averagePos = SquadManager.GetSquadAveragePosition(Bot, squadmates);
+            float spread = SquadManager.GetSquadSpread(Bot, squadmates, averagePos);
+            float regroupDistance = Plugin.Instance.Config.SquadRegroupDistance;
+
+            if (spread < regroupDistance)
+                return false;
+
+            Room? squadRoom = Room.GetRoomAtPosition(averagePos);
+
+            if (squadRoom != null)
+            {
+                LogManager.Debug($"{Bot.Player.Nickname} regrouping with squad towards {squadRoom.Name}");
+                _navigator.SetDestination(squadRoom);
+                _isWaiting = false;
+                return true;
+            }
+
+            return false;
+        }
+
         private void HandleNavigation()
         {
             if (!_navigator.IsNavigating && !_navigator._enablePatrolMode)
             {
+                if (ObjectivesHandler.TryAssignObjective(Bot))
+                {
+                    _navigator.StartObjective();
+                    return;
+                }
+
                 if (!_isWaiting)
                 {
                     _isWaiting = true;
@@ -264,29 +339,127 @@ namespace UncomplicatedCustomBots.API.Features.States
                     _idleTimer -= Time.deltaTime;
                     if (_idleTimer <= 0)
                     {
-                        Room randomRoom = Room.List.Where(r => r != null && !Plugin.Instance.Config.BlacklistedRooms.Contains(r.GameObject.name)).OrderBy(x => UnityEngine.Random.value).FirstOrDefault();
+                        Room? randomRoom = GetRandomUnblacklistedRoom();
                         if (randomRoom != null)
                             _navigator.SetDestination(randomRoom);
+                            
                         _isWaiting = false;
                     }
                 }
             }
         }
 
-        /// <summary>
-        /// Check for nearby items to collect
-        /// </summary>
+        private void InvestigateSensedEvents()
+        {
+            bool isScp939 = Bot.Player.Role == RoleTypeId.Scp939;
+            if ((Bot.Player.Team == Team.SCPs && !isScp939) || Bot.Player.Team == Team.Dead)
+                return;
+
+            if (Bot.Context.SensedEvents.Count == 0)
+                return;
+
+            float now = Time.time;
+
+            SensedEvent bestGrenade = default;
+            bool foundGrenade = false;
+            for (int i = 0; i < Bot.Context.SensedEvents.Count; i++)
+            {
+                SensedEvent e = Bot.Context.SensedEvents[i];
+                if (e.Type == SensedEventType.Grenade && now - e.Time < SENSED_EVENT_MEMORY)
+                {
+                    if (!foundGrenade || e.Time > bestGrenade.Time)
+                    {
+                        bestGrenade = e;
+                        foundGrenade = true;
+                    }
+                }
+            }
+
+            if (foundGrenade && bestGrenade.Time > 0f && Vector3.Distance(Bot.Player.Position, bestGrenade.Position) < GrenadeFleeRange)
+            {
+                Bot.ChangeState(new FleeState(Bot, bestGrenade.Position));
+                return;
+            }
+
+            if (_navigator.IsNavigating || _isWaiting)
+                return;
+
+            SensedEvent bestInteresting = default;
+            bool foundInteresting = false;
+            for (int i = 0; i < Bot.Context.SensedEvents.Count; i++)
+            {
+                SensedEvent e = Bot.Context.SensedEvents[i];
+                bool isInteresting;
+                if (isScp939)
+                {
+                    isInteresting = e.Type == SensedEventType.Speaking || e.Type == SensedEventType.Gunshot || e.Type == SensedEventType.Tesla;
+                }
+                else
+                {
+                    isInteresting = e.Type == SensedEventType.Gunshot || e.Type == SensedEventType.DoorOpen || e.Type == SensedEventType.Tesla || e.Type == SensedEventType.Speaking;
+                }
+
+                if (!isInteresting)
+                    continue;
+
+                if (now - e.Time > SENSED_EVENT_MEMORY)
+                    continue;
+
+                if (!foundInteresting || e.Priority > bestInteresting.Priority || (e.Priority == bestInteresting.Priority && e.Time > bestInteresting.Time))
+                {
+                    bestInteresting = e;
+                    foundInteresting = true;
+                }
+            }
+
+            if (foundInteresting && bestInteresting.Time > 0f && Vector3.Distance(Bot.Player.Position, bestInteresting.Position) > 6f)
+            {
+                Room? eventRoom = Room.GetRoomAtPosition(bestInteresting.Position);
+                if (eventRoom != null)
+                {
+                    _isWaiting = false;
+                    _navigator.SetDestination(eventRoom);
+                }
+            }
+        }
+
         private void CheckForItems()
         {
+            _itemCheckTimer += Time.deltaTime;
+            if (_itemCheckTimer < ITEM_CHECK_INTERVAL)
+                return;
+
+            _itemCheckTimer = 0f;
+
             if (Bot.Player.IsInventoryFull)
                 return;
 
             if (Bot.Player.Team == Team.SCPs || Bot.Player.Team == Team.Flamingos || Bot.Player.Team == Team.Dead)
                 return;
 
-            foreach (Pickup item in Pickup.List)
+            if (Bot.BotDetectionRadius == null)
+                return;
+
+            Vector3 botPosition = Bot.Player.Position;
+
+            Pickup[] snapshot = Bot.BotDetectionRadius.PickupsInRange.ToArray();
+            int count = snapshot.Length;
+            if (count > _pickupSnapshotBuffer.Length)
             {
-                float distance = Vector3.Distance(Bot.Player.Position, item.Position);
+                LogManager.Debug($"CheckForItems: {count} pickups in range, only processing {_pickupSnapshotBuffer.Length}");
+                count = _pickupSnapshotBuffer.Length;
+            }
+                
+            for (int i = 0; i < count; i++)
+                _pickupSnapshotBuffer[i] = snapshot[i];
+
+            for (int i = 0; i < count; i++)
+            {
+                Pickup item = _pickupSnapshotBuffer[i];
+                if (item == null)
+                    continue;
+
+                float distance = Vector3.Distance(botPosition, item.Position);
 
                 if (distance < 2f)
                 {
@@ -300,6 +473,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                         try
                         {
                             Bot.Player.AddItem(item.Base.Info.ItemId);
+                            Bot.BotDetectionRadius.PickupsInRange.Remove(item);
                             item.Destroy();
                             ItemCollectedEventArgs collectedargs = new(Bot, item, distance);
                             Events.Handlers.State.OnItemCollected(collectedargs);
@@ -313,25 +487,46 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
         }
 
-        public void SetDetectionRange(float range)
-        {
-            _detectionRange = Mathf.Max(5f, range);
-        }
+        public void SetDetectionRange(float range) => _detectionRange = Mathf.Max(5f, range);
 
-        public void SetDetectionAngle(float angle)
-        {
-            _detectionAngle = Mathf.Clamp(angle, 30f, 180f);
-        }
+        public void SetDetectionAngle(float angle) => _detectionAngle = Mathf.Clamp(angle, 30f, 180f);
 
-        public void SetDetectionInterval(float interval)
-        {
-            _detectionCheckInterval = Mathf.Max(0.1f, interval);
-        }
+        public void SetDetectionInterval(float interval) => _detectionCheckInterval = Mathf.Max(0.1f, interval);
 
-        public override void Exit()
+        public override void Exit() { }
+
+        private static HashSet<string> _blacklistSet = [];
+        private static int _blacklistGen = -1;
+        private static Room? GetRandomUnblacklistedRoom()
         {
-            if (_navigator != null)
-                UnityEngine.Object.Destroy(_navigator);
+            List<string> blacklist = Plugin.Instance.Config.BlacklistedRooms;
+            if (_blacklistGen != blacklist.Count || _blacklistSet.Count != blacklist.Count)
+            {
+                _blacklistSet = new(blacklist);
+                _blacklistGen = blacklist.Count;
+            }
+
+            List<Room> candidates = [];
+            List<Room> fallback = [];
+
+            foreach (Room room in Room.List)
+            {
+                if (room == null || _blacklistSet.Contains(room.GameObject.name))
+                    continue;
+
+                if (room.Name == RoomName.Unnamed || room.Zone == FacilityZone.Other)
+                {
+                    fallback.Add(room);
+                }
+                else
+                    candidates.Add(room);
+            }
+
+            List<Room> pool = candidates.Count > 0 ? candidates : fallback;
+            if (pool.Count == 0)
+                return null;
+
+            return pool[UnityEngine.Random.Range(0, pool.Count)];
         }
 
         #region Properties

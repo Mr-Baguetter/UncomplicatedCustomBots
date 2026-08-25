@@ -1,62 +1,43 @@
-﻿using CommandSystem.Commands.RemoteAdmin.Dummies;
-using CustomPlayerEffects;
-using LabApi.Features.Wrappers;
+﻿using LabApi.Features.Wrappers;
 using PlayerRoles;
 using PlayerRoles.FirstPersonControl;
-using PlayerRoles.PlayableScps.Scp106;
 using PlayerRoles.PlayableScps.Scp173;
-using PlayerRoles.PlayableScps.Scp939;
-using PlayerRoles.Ragdolls;
-using PlayerRoles.Subroutines;
-using RelativePositioning;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using TMPro;
-using UncomplicatedCustomBots.API.Managers;
+using UncomplicatedCustomBots.API.Extensions;
+using UncomplicatedCustomBots.API.Features.Components;
 using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
     internal class Scp173State : State
     {
-        private Player _target;
+        private Player _target = null!;
         private float _fireTimer = 0f;
         private float _targetCheckTimer = 0f;
         private const float TARGET_CHECK_INTERVAL = 0.3f;
-        private float _optimalDistance = 1.5f;
-        private float _tooCloseDistance = 0.8f;
-        private float _combatSpeed = 10f;
-        private LayerMask _ragdollLayerMask;
-        private float _strafeTimer = 0f;
-        private bool _isStrafing = false;
-        private float _strafeDirection = 1f;
-        private Vector3 _lastPosition;
+        private readonly float _optimalDistance = 1.5f;
+        private readonly float _tooCloseDistance = 0.8f;
+        private readonly float _combatSpeed = 10f;
         private bool _hasValidTarget = false;
         private float _stateStabilityTimer = 0f;
         private const float MIN_STATE_TIME = 2f;
         private float _targetLostTimer = 0f;
         private const float TARGET_LOST_GRACE_PERIOD = 1.5f;
-        private Scp173Role scp173;
-        private Scp173MovementModule movementModule;
-        private Scp173TeleportAbility teleportAbility;
-        private Scp173ObserversTracker observersTracker;
-        private Scp173SnapAbility snapAbility;
+        private readonly Scp173Role scp173;
+        private readonly Scp173TeleportAbility teleportAbility;
+        private readonly Scp173SnapAbility snapAbility;
+        private readonly Scp173ObserversTracker observersTracker;
         private float _teleportCooldown = 0f;
         private const float TELEPORT_COOLDOWN_TIME = 2f;
         private float _observedCheckTimer = 0f;
         private const float OBSERVED_CHECK_INTERVAL = 0.1f;
         private const float SNAP_RANGE = 3f;
+        private static readonly Collider[] _overlapBuffer = new Collider[16];
+        private static readonly int _playersLayer = LayerMask.NameToLayer("Players");
+        private static readonly int _ragdollLayer = LayerMask.NameToLayer("Ragdoll");
 
         public Scp173State(Bot bot) : base(bot)
         {
-            _ragdollLayerMask = LayerMask.GetMask("Ragdoll");
-            _lastPosition = bot.Player.Position;
-            _strafeDirection = UnityEngine.Random.value > 0.5f ? 1f : -1f;
-            scp173 = bot.Player.RoleBase as Scp173Role;
-            movementModule = scp173.FpcModule as Scp173MovementModule;
+            scp173 = (bot.Player.RoleBase as Scp173Role)!;
             scp173.SubroutineModule.TryGetSubroutine(out teleportAbility);
             scp173.SubroutineModule.TryGetSubroutine(out observersTracker);
             scp173.SubroutineModule.TryGetSubroutine(out snapAbility);
@@ -64,18 +45,18 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
-            {
-                nav.StopNavigation();
-                nav.enabled = false;
+            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            {   
+                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator & !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
+                {
+                    nav.StopNavigation();
+                    nav.enabled = false;
+                }
             }
 
-            _lastPosition = Bot.Player.Position;
             _hasValidTarget = false;
             _stateStabilityTimer = 0f;
             _targetLostTimer = 0f;
-            _strafeTimer = 0f;
-            _isStrafing = false;
             _teleportCooldown = 0f;
         }
 
@@ -84,16 +65,19 @@ namespace UncomplicatedCustomBots.API.Features.States
             _stateStabilityTimer += Time.deltaTime;
             _teleportCooldown -= Time.deltaTime;
 
+            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var elevatorNav) && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+                return;
+
             _targetCheckTimer += Time.deltaTime;
             if (_targetCheckTimer >= TARGET_CHECK_INTERVAL)
             {
-                Player newTarget = Targeting.GetTarget(Bot.Player);
+                Player? newTarget = Targeting.GetTarget(Bot, _target);
                 bool hadTarget = _target != null;
 
-                if (newTarget != _target)
+                if (newTarget != null && newTarget != _target)
                 {
                     _target = newTarget;
-                    if (_target != null && IsValidCombatTarget(_target))
+                    if (_target != null && Bot.IsValidCombatTarget(_target))
                     {
                         _hasValidTarget = true;
                         _targetLostTimer = 0f;
@@ -113,7 +97,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 _observedCheckTimer = 0f;
             }
 
-            if (_target == null || !IsValidCombatTarget(_target))
+            if (_target == null || !Bot.IsValidCombatTarget(_target))
             {
                 _targetLostTimer += Time.deltaTime;
                 _hasValidTarget = false;
@@ -144,8 +128,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Vector3 lookDirection = (teleportPosition - Bot.Player.Position).normalized;
                 scp173.FpcModule.MouseLook.LookAtDirection(lookDirection);
 
-                SilentCommandSender silentSender = new();
-                Server.RunCommand($"/dummy action {Bot.Player.PlayerId} Scp173TeleportAbility Zoom->Click", silentSender);
+                BotExtensions.TryRunRoleAction(teleportAbility, ActionName.Zoom, true);
                 _teleportCooldown = TELEPORT_COOLDOWN_TIME;
             }
         }
@@ -195,10 +178,11 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (!Physics.Raycast(position + Vector3.up * 2f, Vector3.down, out RaycastHit groundHit, 5f))
                 return false;
 
-            Collider[] overlapping = Physics.OverlapSphere(position, 0.5f);
-            foreach (var collider in overlapping)
+            int count = Physics.OverlapSphereNonAlloc(position, 0.5f, _overlapBuffer);
+            for (int i = 0; i < count; i++)
             {
-                if (collider.gameObject.layer == LayerMask.NameToLayer("Players") || collider.gameObject.layer == LayerMask.NameToLayer("Ragdoll"))
+                Collider collider = _overlapBuffer[i];
+                if (collider.gameObject.layer == _playersLayer || collider.gameObject.layer == _ragdollLayer)
                     continue;
                 if (collider.isTrigger == false)
                     return false;
@@ -232,84 +216,15 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (observersTracker != null && observersTracker.IsObserved)
                 return false;
 
-            return HasLineOfSight();
-        }
-
-        private void MoveTowardsPosition(Vector3 targetPosition)
-        {
-            if (!(Bot.Player.RoleBase is IFpcRole fpcRole))
-                return;
-
-            if (observersTracker != null && observersTracker.IsObserved)
-                return;
-
-            Vector3 botPosition = Bot.Player.Position;
-            Vector3 direction = (targetPosition - botPosition);
-
-            direction.y = 0;
-            direction = direction.normalized;
-
-            if (direction.sqrMagnitude < 0.01f)
-                return;
-
-            Vector3 lookDirection = (targetPosition - botPosition).normalized;
-            fpcRole.FpcModule.MouseLook.LookAtDirection(lookDirection);
-
-            Vector3 newPosition = botPosition + direction * _combatSpeed * Time.deltaTime;
-
-            if (newPosition.y > botPosition.y - 2f && newPosition.y < botPosition.y + 2f)
-                fpcRole.FpcModule.Motor.ReceivedPosition = new RelativePosition(newPosition);
-        }
-
-        private bool IsValidCombatTarget(Player target)
-        {
-            if (target == null || !target.IsAlive || target.Role == RoleTypeId.Spectator)
-                return false;
-
-            if (target.Faction == Bot.Player.Faction)
-                return false;
-
-            if (target.Role == RoleTypeId.Tutorial && !Plugin.Instance.Config.AttackTutorials)
-                return false;
-
-            float distance = Vector3.Distance(Bot.Player.Position, target.Position);
-            if (distance > 25f)
-                return false;
-
-            return true;
+            return Bot.HasLineOfSight(_target, PlayerRolesUtils.LineOfSightMask);
         }
 
         private void HandleCombatMovement()
         {
-            if (_target == null || !_target.IsAlive || !(Bot.Player.RoleBase is IFpcRole fpcRole))
-                return;
-
             if (observersTracker != null && observersTracker.IsObserved)
                 return;
 
-            Vector3 botPosition = Bot.Player.Position;
-            Vector3 targetPosition = _target.Position;
-
-            Vector3 direction = targetPosition - botPosition;
-            float distance = direction.magnitude;
-
-            Vector3 moveDirection = Vector3.zero;
-            float moveSpeed = _combatSpeed;
-
-            if (distance > _optimalDistance)
-                moveDirection = direction.normalized;
-            else if (distance < _tooCloseDistance)
-            {
-                moveDirection = -direction.normalized;
-                moveSpeed *= 0.7f;
-            }
-
-            if (moveDirection != Vector3.zero)
-            {
-                moveDirection.y = 0;
-                Vector3 newPosition = botPosition + moveDirection * moveSpeed * Time.deltaTime;
-                fpcRole.FpcModule.Motor.ReceivedPosition = new RelativePosition(newPosition);
-            }
+            Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
         }
 
         private void HandleCombat()
@@ -320,31 +235,14 @@ namespace UncomplicatedCustomBots.API.Features.States
             _fireTimer -= Time.deltaTime;
             if (_fireTimer <= 0f)
             {
-                SilentCommandSender silentSender = new();
-                Server.RunCommand($"/dummy action {Bot.Player.PlayerId} Scp173SnapAbility Shoot->Click", silentSender);
+                BotExtensions.TryRunRoleAction(snapAbility, ActionName.Shoot, true);
                 _fireTimer = 0.5f;
             }
         }
 
-        private bool HasLineOfSight()
-        {
-            if (_target == null)
-                return false;
-
-            Vector3 botPosition = Bot.Player.Position + Vector3.up * 1.5f;
-            Vector3 targetPosition = _target.Position + Vector3.up * 1.0f;
-            Vector3 direction = (targetPosition - botPosition).normalized;
-            float distance = Vector3.Distance(botPosition, targetPosition);
-
-            if (Physics.Raycast(botPosition, direction, out RaycastHit hit, distance, PlayerRolesUtils.LineOfSightMask))
-                return hit.transform.root == _target.ReferenceHub.transform.root || Vector3.Distance(hit.point, targetPosition) < 0.5f;
-
-            return true;
-        }
-
         public override void Exit()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
+            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
                 nav.enabled = true;
         }
     }

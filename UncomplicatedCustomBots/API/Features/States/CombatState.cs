@@ -1,53 +1,81 @@
-﻿using InventorySystem;
-using InventorySystem.Items;
-using InventorySystem.Items.Firearms;
+﻿using CustomPlayerEffects;
 using InventorySystem.Items.Firearms.Modules;
 using LabApi.Features.Wrappers;
-using PlayerRoles;
+using MEC;
 using PlayerRoles.FirstPersonControl;
-using RelativePositioning;
-using System.Linq;
+using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Managers;
 using UnityEngine;
-using InventorySystem.Items.ThrowableProjectiles;
-using InventorySystem.Items.Usables;
-using InventorySystem.Items.Keycards;
-using MEC;
-using CustomPlayerEffects;
+using Utils.Networking;
 using static InventorySystem.Items.ThrowableProjectiles.ThrowableNetworkHandler;
-using Mirror;
-using RemoteAdmin;
-using UncomplicatedCustomBots.API.Extensions;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
     public class CombatState : State
     {
-        private Player _target;
-        private float _fireRate = 0.2f;
+        public Player Target = null!;
+
+        private Navigation _navigator = null!;
+
+        private const float FireRate = 0.2f;
+        private const int BurstSize = 4;
+        private const float BurstCooldown = 0.7f;
+        private const float OptimalDistance = 15f;
+        private const float TooCloseDistance = 7f;
+        private const float EffectiveRange = 35f;
+        private const float CombatSpeed = 13.5f;
+        private const float TargetCheckInterval = 0.5f;
+        private const float MinStateDuration = 1f;
+        private const float MaxNoSightTime = 5f;
+        private const float HealHealthThreshold = 50f;
+        private const float SafeHealWindow = 2f;
+        private const float DodgeFlipInterval = 1.2f;
+        private const float ThrowRange = 12f;
+        private const float CombatPathRecalcInterval = 0.5f;
+
         private float _fireTimer = 0f;
-        private float _optimalDistance = 15f;
-        public static readonly CachedLayerMask HitregMask = new("InvisibleCollider", "Default", "Hitbox", "Glass", "CCTV");
-        private float _tooCloseDistance = 7f;
-        private bool _isReloading = false;
-        private float _combatSpeed = 13.5f;
+        private int _burstRoundsFired = 0;
+        private float _burstCooldownTimer = 0f;
         private float _targetCheckTimer = 0f;
-        private const float TARGET_CHECK_INTERVAL = 0.5f;
         private float _stateChangeTimer = 0f;
-        private const float MIN_STATE_DURATION = 1f;
         private float _noTargetSightTimer = 0f;
-        private const float MAX_NO_SIGHT_TIME = 5f;
+        private bool _isReloading = false;
+        private float _dodgeDirection = 1f;
+        private float _dodgeFlipTimer = 0f;
+        private float _combatPathTimer = 0f;
 
         public CombatState(Bot bot) : base(bot) { }
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
-                nav.StopNavigation();
-            
+            Target ??= Bot.Context.Target ?? null!;
+
+            _navigator = Bot.Player.GameObject!.GetComponent<Navigation>() ?? Bot.Player.GameObject!.AddComponent<Navigation>();
+            _navigator.enabled = true;
+
+            if (Bot.Player.RoleBase is IFpcRole fpc)
+            {
+                float chaseSpeed = CombatSpeed;
+
+                if (fpc.FpcModule.SprintSpeed > chaseSpeed)
+                    chaseSpeed = fpc.FpcModule.SprintSpeed;
+                    
+                chaseSpeed = Mathf.Clamp(chaseSpeed, 6f, 10f);
+
+                if (chaseSpeed < fpc.FpcModule.WalkSpeed * 1.6f)
+                    chaseSpeed = fpc.FpcModule.WalkSpeed * 1.6f;
+                    
+                _navigator.Init(speed: chaseSpeed, enablePatrol: false);
+            }
+            else
+                _navigator.Init(speed: CombatSpeed, enablePatrol: false);
+
+            _navigator.StopNavigation();
+
             _stateChangeTimer = 0f;
             _noTargetSightTimer = 0f;
+            _combatPathTimer = 0f;
         }
 
         public override void Update()
@@ -57,24 +85,41 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_isReloading)
             {
                 if (Bot.Player.CurrentItem is FirearmItem firearm && !IsActuallyReloading(firearm))
+                {
                     _isReloading = false;
+                }
+                else
+                {
+                    if (Target != null)
+                        HandleCombatMovement();
+                        
+                    return;
+                }
+            }
+
+            if (IsUsingMedicalItem())
+            {
+                if (Target != null)
+                    HandleCombatMovement();
 
                 return;
             }
 
             _targetCheckTimer += Time.deltaTime;
-            if (_targetCheckTimer >= TARGET_CHECK_INTERVAL || _target == null)
+            if (_targetCheckTimer >= TargetCheckInterval || Target == null)
             {
-                _target = Targeting.GetTarget(Bot.Player);
+                Target = Targeting.GetTarget(Bot, Target)!;
                 _targetCheckTimer = 0f;
             }
 
-            if (_target != null && HasLineOfSight())
+            if (Target != null && Bot.HasLineOfSightWithDoors(Target))
+            {
                 _noTargetSightTimer = 0f;
+            }
             else
             {
                 _noTargetSightTimer += Time.deltaTime;
-                if (_noTargetSightTimer >= MAX_NO_SIGHT_TIME)
+                if (_noTargetSightTimer >= MaxNoSightTime)
                 {
                     Bot.ChangeState(new WalkingState(Bot));
                     return;
@@ -87,19 +132,19 @@ namespace UncomplicatedCustomBots.API.Features.States
                 return;
             }
 
-            if (Bot.Player.Health < 50)
+            if (Bot.Player.Health < HealHealthThreshold && CanHealSafely())
                 UseMedicalItem();
 
             if (CheckAndReload())
                 return;
 
-            if (Bot.Player.Health > 50)
+            if (Bot.Player.Health > HealHealthThreshold)
             {
                 if (!SwitchToBestWeapon())
                 {
-                    if (_target != null && _stateChangeTimer > MIN_STATE_DURATION)
+                    if (Target != null && _stateChangeTimer > MinStateDuration)
                     {
-                        Bot.ChangeState(new FleeState(Bot, _target));
+                        Bot.ChangeState(new FleeState(Bot, Target));
                         return;
                     }
                 }
@@ -109,128 +154,185 @@ namespace UncomplicatedCustomBots.API.Features.States
             HandleCombatShooting();
         }
 
-        private bool ShouldExitCombat()
+        private bool IsUsingMedicalItem()
         {
-            if (_target == null || !_target.IsAlive || _target.Role == RoleTypeId.Spectator)
-                return true;
+            if (Bot.Player.CurrentItem is not UsableItem usable)
+                return false;
 
-            if (_target.Faction == Bot.Player.Faction || _target.IsDisarmed)
-                return true;
-
-            if (_target.Role == RoleTypeId.Tutorial && !Plugin.Instance.Config.AttackTutorials)
-                return true;
-
-            if (Bot.Player.Role == RoleTypeId.ClassD && _target.Role == RoleTypeId.Scientist)
-                return true;
-
-            float distance = Vector3.Distance(Bot.Player.Position, _target.Position);
-            if (distance > 30f)
-                return true;
-
-            return false;
+            return usable.IsUsing;
         }
+
+        private bool ShouldExitCombat() => !Bot.IsValidCombatTarget(Target);
+
+        private bool CanHealSafely() => Bot.Context.GetRecentAttacker(SafeHealWindow) == null;
 
         private void HandleCombatMovement()
         {
-            if (_target == null || !(Bot.Player.RoleBase is IFpcRole fpcRole))
+            if (Target == null || Bot.Player.RoleBase is not IFpcRole fpcRole)
                 return;
 
-            Vector3 targetPosition = _target.Position;
+            Vector3 targetPosition = Target.Position;
             Vector3 botPosition = Bot.Player.Position;
             Vector3 direction = (targetPosition - botPosition).normalized;
+            direction.Normalize();
             float distance = Vector3.Distance(botPosition, targetPosition);
 
-            Vector3 moveDirection = Vector3.zero;
-
-            if (distance > _optimalDistance)
+            if (distance > OptimalDistance)
             {
-                moveDirection = direction;
+                HandleChaseMovement(targetPosition);
             }
-            else if (distance < _tooCloseDistance)
+            else if (distance < TooCloseDistance)
             {
-                moveDirection = -direction;
+                StopChaseMovement();
+
+                Vector3 retreatTarget = _navigator.ProjectToNavMesh(botPosition - direction * 3f);
+                _navigator.MoveTowards(retreatTarget, CombatSpeed, lookAtTarget: false);
             }
             else
             {
-                Vector3 strafeDirection = Vector3.Cross(Vector3.up, direction);
-                if (Random.value > 0.5f)
-                    strafeDirection = -strafeDirection;
-                moveDirection = strafeDirection;
-            }
+                StopChaseMovement();
 
-            if (moveDirection != Vector3.zero)
-            {
-                Vector3 newPosition = botPosition + moveDirection * _combatSpeed * Time.deltaTime;
-                
-                if (IsValidPosition(newPosition))
+                _dodgeFlipTimer -= Time.deltaTime;
+                if (_dodgeFlipTimer <= 0f)
                 {
-                    fpcRole.FpcModule.Motor.ReceivedPosition = new RelativePosition(newPosition);
+                    _dodgeDirection = Random.value > 0.5f ? 1f : -1f;
+                    _dodgeFlipTimer = DodgeFlipInterval;
                 }
+
+                Vector3 strafeDirection = Vector3.Cross(Vector3.up, direction) * _dodgeDirection;
+
+                Player? recentAttacker = Bot.Context.GetRecentAttacker(3f);
+                Vector3 moveDirection;
+                if (recentAttacker != null && recentAttacker != Target)
+                {
+                    Vector3 awayFromAttacker = (botPosition - recentAttacker.Position).normalized;
+                    moveDirection = (strafeDirection + awayFromAttacker * 0.5f).normalized;
+                }
+                else
+                    moveDirection = strafeDirection;
+
+                Vector3 strafeTarget = _navigator.ProjectToNavMesh(botPosition + moveDirection * 3f);
+                _navigator.MoveTowards(strafeTarget, CombatSpeed, lookAtTarget: false);
             }
 
-            fpcRole.FpcModule.MouseLook.LookAtDirection(direction);
+            fpcRole.FpcModule.MouseLook.LookAtDirection(direction, 0.7f);
         }
 
-        private bool IsValidPosition(Vector3 position)
+        private void HandleChaseMovement(Vector3 targetPosition)
         {
-            if (Physics.Raycast(position + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 5f))
-                return hit.distance < 3f;
+            _combatPathTimer -= Time.deltaTime;
+            if (_combatPathTimer <= 0f)
+            {
+                Vector3 projected = _navigator.ProjectToNavMesh(targetPosition);
+                if (!_navigator.NavigateToWorldPosition(projected))
+                {
+                    LogManager.Debug($"{Bot.Player.Nickname} failed to build a navmesh chase path to {targetPosition}, moving directly.");
+                }
+                else
+                    LogManager.Debug($"{Bot.Player.Nickname} rebuilt chase path to {projected}");
 
-            return false;
+                _combatPathTimer = CombatPathRecalcInterval;
+            }
+
+            if (_navigator.IsNavigating)
+                return;
+
+            _navigator.MoveTowards(_navigator.ProjectToNavMesh(targetPosition), CombatSpeed, lookAtTarget: false);
+        }
+
+        private void StopChaseMovement()
+        {
+            _combatPathTimer = 0f;
+
+            if (_navigator.IsNavigating)
+                _navigator.StopNavigation();
         }
 
         private void HandleCombatShooting()
         {
-            if (_target == null || !HasLineOfSight() || Bot.Player.HasEffect<Flashed>())
+            if (Target == null || !Bot.HasLineOfSightWithDoors(Target) || Bot.Player.HasEffect<Flashed>())
                 return;
 
-            _fireTimer -= Time.deltaTime;
-            if (_fireTimer <= 0f)
+            float distance = Vector3.Distance(Bot.Player.Position, Target.Position);
+
+            if (Bot.Player.CurrentItem is FirearmItem currentFirearm)
             {
-                if (Bot.Player.CurrentItem is FirearmItem currentFirearm)
+                if (distance > EffectiveRange)
+                    return;
+
+                if (_burstCooldownTimer > 0f)
                 {
-                    if (currentFirearm.Base.TryGetModule<IAmmoContainerModule>(out var ammoContainer)  && ammoContainer.AmmoStored > 0)
+                    _burstCooldownTimer -= Time.deltaTime;
+                    return;
+                }
+
+                if (currentFirearm.Base.TryGetModule<IAmmoContainerModule>(out var ammoContainer) && ammoContainer.AmmoStored > 0)
+                {
+                    _fireTimer -= Time.deltaTime;
+                    if (_fireTimer <= 0f)
                     {
-                        SilentCommandSender silentSender = new();
-                        Server.RunCommand($"/dummy action {Bot.Player.PlayerId} {currentFirearm.Type}_(ANY) Shoot->Click", silentSender);
-                        _fireTimer = _fireRate;
+                        BotExtensions.TryRunItemAction(currentFirearm.Base, ActionName.Shoot, true);
+                        _fireTimer = FireRate;
+                        _burstRoundsFired++;
+
+                        if (_burstRoundsFired >= BurstSize)
+                        {
+                            _burstRoundsFired = 0;
+                            _burstCooldownTimer = BurstCooldown;
+                        }
                     }
                 }
-                else if (Bot.Player.CurrentItem is LabApi.Features.Wrappers.ThrowableItem throwableItem)
+            }
+            else if (Bot.Player.CurrentItem is ThrowableItem throwableItem)
+            {
+                if (distance > ThrowRange)
+                    return;
+
+                try
                 {
-                    try
-                    {
-                        throwableItem.Base.ServerThrow(throwableItem.FullThrowStartVelocity, throwableItem.FullThrowUpwardsFactor, throwableItem.FullThrowStartTorque, GetLimitedVelocity(throwableItem.CurrentOwner?.Velocity ?? Vector3.one));
-                    }
-                    catch (System.Exception ex)
-                    {
-                        LogManager.Error($"Error throwing item: {ex.Message}");
-                    }
+                    new ThrowableItemRequestMessage(throwableItem.Base, RequestType.BeginThrow).SendToAuthenticated();
+                    Timing.CallDelayed(Timing.WaitForSeconds(0.5f), () => new ThrowableItemRequestMessage(throwableItem.Base, RequestType.ConfirmThrowFullForce).SendToAuthenticated());
+                    //throwableItem.Base.ServerThrow(throwableItem.FullThrowStartVelocity, throwableItem.FullThrowUpwardsFactor, throwableItem.FullThrowStartTorque, GetLimitedVelocity(throwableItem.CurrentOwner?.Velocity ?? Vector3.one));
+                }
+                catch (System.Exception ex)
+                {
+                    LogManager.Error($"Error throwing item: {ex.Message}");
                 }
             }
         }
 
         private bool SwitchToBestWeapon()
         {
-            Item bestWeapon = Bot.Player.Items.Where(item => item is FirearmItem || item is LabApi.Features.Wrappers.ThrowableItem).OrderByDescending(item =>
+            Item? bestWeapon = null;
+            int bestScore = int.MinValue;
+
+            foreach (Item item in Bot.Player.Items)
             {
+                int score = 0;
                 if (item is FirearmItem firearm)
                 {
                     if (firearm.Base.TryGetModule<IAmmoContainerModule>(out var ammoContainer) && ammoContainer.AmmoStored > 0)
-                        return 100;
-                    
-                    if (Bot.Player.Ammo.TryGetValue(firearm.AmmoType, out var ammoCount) && ammoCount > 0)
-                        return 50;
-                    
-                    return 10;
+                    {
+                        score = 100;
+                    }
+                    else if (Bot.Player.Ammo.TryGetValue(firearm.AmmoType, out var ammoCount) && ammoCount > 0)
+                    {
+                        score = 50;
+                    }
+                    else
+                        score = 10;
                 }
-                
-                if (item is LabApi.Features.Wrappers.ThrowableItem)
-                    return 30;
-                
-                return 0;
-            })
-            .FirstOrDefault();
+                else if (item is ThrowableItem)
+                {
+                    score = 30;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestWeapon = item;
+                }
+            }
 
             if (bestWeapon != null && Bot.Player.CurrentItem != bestWeapon)
             {
@@ -243,7 +345,15 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void UseMedicalItem()
         {
-            LabApi.Features.Wrappers.UsableItem medicalItem = Bot.Player.Items.OfType<LabApi.Features.Wrappers.UsableItem>().FirstOrDefault(item => item.Type == ItemType.Medkit ||  item.Type == ItemType.Adrenaline ||  item.Type == ItemType.Painkillers);
+            UsableItem? medicalItem = null;
+            foreach (Item item in Bot.Player.Items)
+            {
+                if (item is UsableItem usable && (item.Type == ItemType.Medkit || item.Type == ItemType.Adrenaline || item.Type == ItemType.Painkillers))
+                {
+                    medicalItem = usable;
+                    break;
+                }
+            }
 
             if (medicalItem != null)
             {
@@ -252,8 +362,8 @@ namespace UncomplicatedCustomBots.API.Features.States
                 {
                     if (!medicalItem.IsUsing)
                     {
-                        medicalItem.Base.ServerOnUsingCompleted();
-                        typeof(UsableItemsController).InvokeStaticEvent("ServerOnUsingCompleted", [medicalItem.CurrentOwner.ReferenceHub, medicalItem.Base]);
+                        medicalItem.IsUsing = true;
+                        new InventorySystem.Items.Usables.StatusMessage(InventorySystem.Items.Usables.StatusMessage.StatusType.Start, medicalItem.Serial).SendToAuthenticated();
                     }
                 }
                 catch (System.Exception ex)
@@ -263,34 +373,9 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
         }
 
-        /// <summary>
-        /// Checks if the bot has a clear line of sight to its target.
-        /// </summary>
-        /// <returns>True if there are no obstructions, otherwise false.</returns>
-        private bool HasLineOfSight()
-        {
-            if (_target == null)
-                return false;
-
-            Vector3 botPosition = Bot.Player.Position + Vector3.up * 1.5f;
-            Vector3 targetPosition = _target.Position + Vector3.up * 1.5f;
-            Vector3 direction = (targetPosition - botPosition).normalized;
-            float distance = Vector3.Distance(botPosition, targetPosition);
-
-            if (Physics.Raycast(botPosition, direction, out RaycastHit hit, distance, HitregMask))
-            {
-                if (hit.transform.root == _target.ReferenceHub.transform.root)
-                    return true;
-
-                return false;
-            }
-
-            return true;
-        }
-
         private bool CheckAndReload()
         {
-            if (!(Bot.Player.CurrentItem is FirearmItem firearm))
+            if (Bot.Player.CurrentItem is not FirearmItem firearm)
                 return false;
 
             if (!firearm.Base.TryGetModule<IReloaderModule>(out var reloadModule) || !firearm.Base.TryGetModule<IAmmoContainerModule>(out var ammoContainer))
@@ -329,8 +414,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject.TryGetComponent<Navigation>(out var nav))
-                nav.enabled = true;
+            _navigator?.enabled = true;
         }
     }
 }

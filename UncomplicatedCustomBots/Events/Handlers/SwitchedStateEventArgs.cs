@@ -12,7 +12,7 @@ namespace UncomplicatedCustomBots.Events.Handlers
         /// <param name="newState">The current state of the bot after the switch.</param>
         /// <param name="bot">The bot instance that switched states.</param>
         /// <exception cref="ArgumentNullException">Thrown when <paramref name="newState"/> or <paramref name="bot"/> is null.</exception>
-        public SwitchedStateEventArgs(API.Features.State oldState, API.Features.State newState, Bot bot)
+        public SwitchedStateEventArgs(API.Features.States.State oldState, API.Features.States.State newState, Bot bot)
         {
             OldState = oldState;
             NewState = newState ?? throw new ArgumentNullException(nameof(newState));
@@ -23,17 +23,17 @@ namespace UncomplicatedCustomBots.Events.Handlers
         /// Gets the previous state of the bot before the switch occurred.
         /// </summary>
         /// <value>
-        /// The previous <see cref="API.Features.State"/> of the bot, or null if this was the initial state assignment.
+        /// The previous <see cref="API.Features.States.State"/> of the bot, or null if this was the initial state assignment.
         /// </value>
-        public API.Features.State? OldState { get; }
+        public API.Features.States.State? OldState { get; }
 
         /// <summary>
         /// Gets the current state of the bot after the switch.
         /// </summary>
         /// <value>
-        /// The new <see cref="API.Features.State"/> that the bot has switched to.
+        /// The new <see cref="API.Features.States.State"/> that the bot has switched to.
         /// </value>
-        public API.Features.State NewState { get; }
+        public API.Features.States.State NewState { get; }
 
         /// <summary>
         /// Gets the bot instance that switched states.

@@ -4,7 +4,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
 {
     public class BotComponent : MonoBehaviour
     {
-        private Bot _bot;
+        private Bot _bot = null!;
 
         public void Initialize(Bot bot)
         {
