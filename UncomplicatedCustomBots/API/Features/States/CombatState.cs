@@ -1,5 +1,10 @@
-﻿using CustomPlayerEffects;
+﻿using System;
+using System.Collections.Generic;
+using CommandSystem.Commands.RemoteAdmin.Dummies;
+using CustomPlayerEffects;
+using InventorySystem.Items;
 using InventorySystem.Items.Firearms.Modules;
+using InventorySystem.Items.Usables;
 using LabApi.Features.Wrappers;
 using MEC;
 using PlayerRoles.FirstPersonControl;
@@ -7,8 +12,8 @@ using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Managers;
 using UnityEngine;
-using Utils.Networking;
 using static InventorySystem.Items.ThrowableProjectiles.ThrowableNetworkHandler;
+using UsableItem = LabApi.Features.Wrappers.UsableItem;
 
 namespace UncomplicatedCustomBots.API.Features.States
 {
@@ -17,6 +22,8 @@ namespace UncomplicatedCustomBots.API.Features.States
         public Player Target = null!;
 
         private Navigation _navigator = null!;
+
+        private PlayerFollower? _follower;
 
         private const float FireRate = 0.2f;
         private const int BurstSize = 4;
@@ -44,6 +51,8 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _dodgeDirection = 1f;
         private float _dodgeFlipTimer = 0f;
         private float _combatPathTimer = 0f;
+        private bool _isThrowingGrenade = false;
+        private CoroutineHandle _throwCoroutineHandle;
 
         public CombatState(Bot bot) : base(bot) { }
 
@@ -59,23 +68,39 @@ namespace UncomplicatedCustomBots.API.Features.States
                 float chaseSpeed = CombatSpeed;
 
                 if (fpc.FpcModule.SprintSpeed > chaseSpeed)
+                {
                     chaseSpeed = fpc.FpcModule.SprintSpeed;
+                }
                     
                 chaseSpeed = Mathf.Clamp(chaseSpeed, 6f, 10f);
 
                 if (chaseSpeed < fpc.FpcModule.WalkSpeed * 1.6f)
+                {
                     chaseSpeed = fpc.FpcModule.WalkSpeed * 1.6f;
+                }
                     
                 _navigator.Init(speed: chaseSpeed, enablePatrol: false);
             }
             else
+            {
                 _navigator.Init(speed: CombatSpeed, enablePatrol: false);
+            }
 
             _navigator.StopNavigation();
+
+            if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out _follower) && _follower.enabled)
+            {
+                _follower.enabled = false;
+            }
 
             _stateChangeTimer = 0f;
             _noTargetSightTimer = 0f;
             _combatPathTimer = 0f;
+            _isThrowingGrenade = false;
+            if (_throwCoroutineHandle.IsRunning)
+            {
+                Timing.KillCoroutines(_throwCoroutineHandle);
+            }
         }
 
         public override void Update()
@@ -128,6 +153,12 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (ShouldExitCombat())
             {
+                if (_follower != null)
+                {
+                    _follower.enabled = true;
+                    return;
+                }
+
                 Bot.ChangeState(new WalkingState(Bot));
                 return;
             }
@@ -138,7 +169,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (CheckAndReload())
                 return;
 
-            if (Bot.Player.Health > HealHealthThreshold)
+            if (!_isThrowingGrenade && Bot.Player.Health > HealHealthThreshold)
             {
                 if (!SwitchToBestWeapon())
                 {
@@ -195,7 +226,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 _dodgeFlipTimer -= Time.deltaTime;
                 if (_dodgeFlipTimer <= 0f)
                 {
-                    _dodgeDirection = Random.value > 0.5f ? 1f : -1f;
+                    _dodgeDirection = UnityEngine.Random.value > 0.5f ? 1f : -1f;
                     _dodgeFlipTimer = DodgeFlipInterval;
                 }
 
@@ -251,14 +282,18 @@ namespace UncomplicatedCustomBots.API.Features.States
         private void HandleCombatShooting()
         {
             if (Target == null || !Bot.HasLineOfSightWithDoors(Target) || Bot.Player.HasEffect<Flashed>())
+            {
                 return;
+            }
 
             float distance = Vector3.Distance(Bot.Player.Position, Target.Position);
 
             if (Bot.Player.CurrentItem is FirearmItem currentFirearm)
             {
                 if (distance > EffectiveRange)
+                {
                     return;
+                }
 
                 if (_burstCooldownTimer > 0f)
                 {
@@ -286,16 +321,213 @@ namespace UncomplicatedCustomBots.API.Features.States
             else if (Bot.Player.CurrentItem is ThrowableItem throwableItem)
             {
                 if (distance > ThrowRange)
+                {
                     return;
+                }
 
-                try
+                if (_isThrowingGrenade)
                 {
-                    throwableItem.Base.ServerThrow(throwableItem.FullThrowStartVelocity, throwableItem.FullThrowUpwardsFactor, throwableItem.FullThrowStartTorque, GetLimitedVelocity(throwableItem.CurrentOwner?.Velocity ?? Vector3.one));
+                    return;
                 }
-                catch (System.Exception ex)
+
+                TryBeginThrowableThrow(throwableItem);
+            }
+        }
+
+        private bool TryBeginThrowableThrow(ThrowableItem throwableItem)
+        {
+            if (throwableItem == null)
+                return false;
+
+            if (_isThrowingGrenade)
+                return false;
+
+            if (throwableItem.Base == null)
+                return false;
+
+            if (throwableItem.Base.PendingRemoval)
+                return false;
+
+            if (!throwableItem.Base.AllowHolster)
+                return false;
+
+            if (throwableItem.Base.CancelStopwatch != null && throwableItem.Base.CancelStopwatch.IsRunning)
+                return false;
+
+            if (throwableItem.Base.ThrowStopwatch != null && throwableItem.Base.ThrowStopwatch.IsRunning)
+                return false;
+
+
+            ReferenceHub ownerHub = throwableItem.Base.Owner;
+            if (ownerHub.HasBlock(BlockedInteraction.ItemPrimaryAction))
+                return false;
+
+            float speedMultiplier = 1f;
+            if (throwableItem.Base.ItemTypeId.TryGetSpeedMultiplier(ownerHub, out float mult) && mult > 0f)
+                speedMultiplier = mult;
+
+            if (speedMultiplier <= 0f)
+                speedMultiplier = 1f;
+
+            try
+            {
+                throwableItem.Base.ServerProcessInitiation();
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error($"Error initiating throwable throw: {ex.Message}");
+                return false;
+            }
+
+            if (throwableItem.Base.ThrowStopwatch == null || !throwableItem.Base.ThrowStopwatch.IsRunning)
+                return false;
+
+            _isThrowingGrenade = true;
+
+            float baseTime = throwableItem.Base.ThrowingAnimTime;
+            if (baseTime <= 0f)
+                baseTime = 0.6f;
+
+            float delay = baseTime * 0.8f / speedMultiplier;
+            delay += 0.05f;
+            if (delay < 0.05f)
+                delay = 0.05f;
+
+            if (delay > 2f)
+                delay = 2f;
+
+            if (_throwCoroutineHandle.IsRunning)
+                Timing.KillCoroutines(_throwCoroutineHandle);
+
+            _throwCoroutineHandle = Timing.RunCoroutine(ThrowGrenadeRoutine(throwableItem, delay));
+            return true;
+        }
+
+        private IEnumerator<float> ThrowGrenadeRoutine(ThrowableItem throwableItem, float delay)
+        {
+            float elapsed = 0f;
+
+            while (elapsed < delay)
+            {
+                if (Target != null && Bot.Player.RoleBase is IFpcRole fpcRole)
                 {
-                    LogManager.Error($"Error throwing item: {ex.Message}");
+                    Vector3 direction = Target.Position + Vector3.up * 1f - Bot.Player.Position;
+                    if (direction.sqrMagnitude > 0.01f)
+                    {
+                        direction.Normalize();
+                        fpcRole.FpcModule.MouseLook.LookAtDirection(direction);
+                    }
                 }
+
+                if (Bot.Player.CurrentItem != throwableItem)
+                {
+                    _isThrowingGrenade = false;
+                    yield break;
+                }
+
+                if (throwableItem.Base == null || throwableItem.Base.PendingRemoval)
+                {
+                    _isThrowingGrenade = false;
+                    yield break;
+                }
+
+                if (Target == null || !Bot.IsValidCombatTarget(Target))
+                {
+                    try
+                    {
+                        if (throwableItem.Base.CancelStopwatch != null && !throwableItem.Base.CancelStopwatch.IsRunning)
+                        {
+                            throwableItem.Base.ServerProcessCancellation();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        LogManager.Error($"Error cancelling throwable throw: {ex.Message}");
+                    }
+
+                    _isThrowingGrenade = false;
+                    yield break;
+                }
+
+                elapsed += Time.deltaTime;
+                yield return Timing.WaitForOneFrame;
+            }
+
+            if (Bot.Player.CurrentItem != throwableItem)
+            {
+                _isThrowingGrenade = false;
+                yield break;
+            }
+
+            if (throwableItem.Base == null || throwableItem.Base.PendingRemoval)
+            {
+                _isThrowingGrenade = false;
+                yield break;
+            }
+
+            if (Target != null)
+            {
+                float dist = Vector3.Distance(Bot.Player.Position, Target.Position);
+                if (dist > ThrowRange + 3f || !Bot.HasLineOfSightWithDoors(Target))
+                {
+                    try
+                    {
+                        if (throwableItem.Base.CancelStopwatch != null && !throwableItem.Base.CancelStopwatch.IsRunning)
+                            throwableItem.Base.ServerProcessCancellation();
+                    }
+                    catch (Exception ex)
+                    {
+                        LogManager.Error($"Error cancelling throwable throw (LOS): {ex.Message}");
+                    }
+
+                    _isThrowingGrenade = false;
+                    yield break;
+                }
+            }
+
+            if (throwableItem.Base.ThrowStopwatch == null || !throwableItem.Base.ThrowStopwatch.IsRunning)
+            {
+                _isThrowingGrenade = false;
+                yield break;
+            }
+
+            try
+            {
+                ReferenceHub hub = Bot.Player.ReferenceHub;
+                if (hub == null || hub.PlayerCameraReference == null)
+                {
+                    _isThrowingGrenade = false;
+                    yield break;
+                }
+
+                Vector3 camPos = hub.PlayerCameraReference.position;
+                Quaternion camRot = hub.PlayerCameraReference.rotation;
+
+                if (Target != null)
+                {
+                    Vector3 aimPoint = Target.Position + Vector3.up * 1f;
+                    Vector3 aimDir = aimPoint - camPos;
+                    if (aimDir.sqrMagnitude > 0.01f)
+                    {
+                        aimDir.Normalize();
+                        if (Bot.Player.RoleBase is IFpcRole fpcLook)
+                        {
+                            fpcLook.FpcModule.MouseLook.LookAtDirection(aimDir);
+                            camRot = hub.PlayerCameraReference.rotation;
+                        }
+                    }
+                }
+
+                Vector3 limitedVel = GetLimitedVelocity(Bot.Player.Velocity);
+                throwableItem.Base.ServerProcessThrowConfirmation(true, camPos, camRot, limitedVel);
+            }
+            catch (Exception ex)
+            {
+                LogManager.Error($"Error confirming throwable throw: {ex.Message}");
+            }
+            finally
+            {
+                _isThrowingGrenade = false;
             }
         }
 
@@ -360,11 +592,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                 {
                     if (!medicalItem.IsUsing)
                     {
+                        UsableItemsController.ServerEmulateMessage(medicalItem.Serial, StatusMessage.StatusType.Start);
                         medicalItem.IsUsing = true;
-                        new InventorySystem.Items.Usables.StatusMessage(InventorySystem.Items.Usables.StatusMessage.StatusType.Start, medicalItem.Serial).SendToAuthenticated();
                     }
                 }
-                catch (System.Exception ex)
+                catch (Exception ex)
                 {
                     LogManager.Error($"Error using medical item: {ex.Message}");
                 }
@@ -391,7 +623,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                             _isReloading = true;
                             return true;
                         }
-                        catch (System.Exception ex)
+                        catch (Exception ex)
                         {
                             LogManager.Error($"Reloading weapon: {ex.Message}");
                         }
@@ -412,6 +644,10 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
+            if (_throwCoroutineHandle.IsRunning)
+                Timing.KillCoroutines(_throwCoroutineHandle);
+
+            _isThrowingGrenade = false;
             _navigator?.enabled = true;
         }
     }

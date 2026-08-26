@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using CommandSystem;
 using LabApi.Features.Wrappers;
@@ -18,7 +19,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.drawpath";
         public string[] Aliases { get; } = ["path", "drap"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             foreach (Bot bot in Bot.BotList)
             {

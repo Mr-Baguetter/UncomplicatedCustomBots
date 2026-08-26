@@ -29,6 +29,8 @@ namespace UncomplicatedCustomBots.Commands
             Subcommands.Add(new RoomBounds());
             Subcommands.Add(new BotUI());
             Subcommands.Add(new DrawPath());
+            Subcommands.Add(new NavBlockerCreate());
+            Subcommands.Add(new NavBlockerSave());
         }
 
         private List<ISubcommand> Subcommands { get; } = [];
@@ -65,10 +67,8 @@ namespace UncomplicatedCustomBots.Commands
                 response = $"Wrong usage!\nCorrect usage: ucb {cmd.Name} {cmd.VisibleArgs}";
                 return false;
             }
-
-            List<string> args = [.. arguments];
-            args.RemoveAt(0);
-
+            
+            ArraySegment<string> args = new(arguments.Array!, arguments.Offset + 1, arguments.Count - 1);
             return cmd.Execute(args, sender, out response);
         }
     }

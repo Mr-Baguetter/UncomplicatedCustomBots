@@ -22,7 +22,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.botui";
         public string[] Aliases { get; } = ["bui"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             if (!Player.TryGet(sender, out Player? player))
             {
@@ -36,7 +36,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return false;
             }
 
-            string botIdentifier = arguments[0];
+            string botIdentifier = arguments.At(0);
             Bot? targetBot = null;
 
             if (int.TryParse(botIdentifier, out int botId))
@@ -64,7 +64,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return true;
             }
 
-            string arg = arguments[1].ToLower();
+            string arg = arguments.At(1).ToLower();
 
             if (Enum.TryParse<BotDebugSections>(arg, true, out var section))
             {
@@ -73,7 +73,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return true;
             }
 
-            if (arg == "disable" && arguments.Count > 2 && Enum.TryParse<BotDebugSections>(arguments[2], true, out var disableSection))
+            if (arg == "disable" && arguments.Count > 2 && Enum.TryParse<BotDebugSections>(arguments.At(2), true, out var disableSection))
             {
                 ui.SetSectionActive(disableSection, false);
                 response = $"Disabled debug UI section: {disableSection}";

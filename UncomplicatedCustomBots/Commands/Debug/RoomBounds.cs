@@ -1,5 +1,6 @@
 using CommandSystem;
 using LabApi.Features.Wrappers;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using UncomplicatedCustomBots.API.Extensions;
@@ -18,7 +19,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.roombounds";
         public string[] Aliases { get; } = ["bounds", "bound"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             if (!Player.TryGet(sender, out Player? player))
             {

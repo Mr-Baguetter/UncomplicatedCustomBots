@@ -1,5 +1,6 @@
 ﻿using CommandSystem;
 using LabApi.Features.Wrappers;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using UncomplicatedCustomBots.API.Interfaces;
@@ -17,7 +18,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.raycast";
         public string[] Aliases { get; } = ["ray", "cast", "sendraycast"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             if (!Player.TryGet(sender, out Player? player))
             {

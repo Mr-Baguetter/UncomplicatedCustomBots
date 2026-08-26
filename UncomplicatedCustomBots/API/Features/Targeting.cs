@@ -1,5 +1,4 @@
 ﻿using LabApi.Features.Wrappers;
-using MapGeneration;
 using PlayerRoles;
 using System.Collections.Generic;
 using UncomplicatedCustomBots.API.Extensions;
@@ -211,7 +210,7 @@ namespace UncomplicatedCustomBots.API.Features
             if (target.Role == RoleTypeId.Tutorial && !Plugin.Instance.Config.AttackTutorials)
                 return false;
 
-            if (bot.Player.Role == RoleTypeId.ClassD && target.Role == RoleTypeId.Scientist)
+            if ((bot.Player.Role == RoleTypeId.ClassD && target.Role == RoleTypeId.Scientist) || (bot.Player.Role == RoleTypeId.Scientist && target.Role == RoleTypeId.ClassD))
                 return false;
 
             return Vector3.Distance(bot.Player.Position, target.Position) <= MaxTargetingRange;

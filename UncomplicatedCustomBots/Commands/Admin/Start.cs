@@ -1,5 +1,6 @@
 ﻿using CommandSystem;
 using LabApi.Features.Wrappers;
+using System;
 using System.Collections.Generic;
 using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features;
@@ -19,9 +20,9 @@ namespace UncomplicatedCustomBots.Commands.Admin
         public string RequiredPermission { get; } = "ucb.start";
         public string[] Aliases { get; } = ["s", "trigger"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
-            if (!int.TryParse(arguments[0], out int playerId))
+            if (!int.TryParse(arguments.At(0), out int playerId))
             {
                 response = "Invalid player id!";
                 return false;

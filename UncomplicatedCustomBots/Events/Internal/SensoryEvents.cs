@@ -65,7 +65,7 @@ namespace UncomplicatedCustomBots.Events.Internal
 
             VoiceChatChannel channel = ev.Message.Channel;
 
-            if (channel != VoiceChatChannel.Proximity && channel != VoiceChatChannel.Radio && channel != VoiceChatChannel.Mimicry)
+            if (channel != VoiceChatChannel.Proximity || channel != VoiceChatChannel.Radio || channel != VoiceChatChannel.Mimicry)
                 return;
 
             float now = Time.time;

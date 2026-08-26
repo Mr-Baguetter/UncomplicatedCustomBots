@@ -82,8 +82,10 @@ namespace UncomplicatedCustomBots.Harmony.Patches.Events
             [
                 // Load ReferenceHub from local.1
                 new CodeInstruction(OpCodes.Ldloc_1),
+
                 // new DummySpawnedEventArgs(ReferenceHub)
                 new CodeInstruction(OpCodes.Newobj, spawnedCtor),
+                
                 // call Dummy.OnDummySpawned(...)
                 new CodeInstruction(OpCodes.Call, onSpawned)
             ];

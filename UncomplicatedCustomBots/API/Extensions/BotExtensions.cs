@@ -21,7 +21,7 @@ namespace UncomplicatedCustomBots.API.Extensions
 
         public static bool TryAddNavigation(this Bot bot, out Navigation navigation)
         {
-            if (!bot.Player.GameObject!.TryGetComponent<Navigation>(out navigation))
+            if (!bot.Player.GameObject!.TryGetComponent(out navigation))
                 navigation = bot.Player.GameObject!.AddComponent<Navigation>();
 
             return navigation != null;

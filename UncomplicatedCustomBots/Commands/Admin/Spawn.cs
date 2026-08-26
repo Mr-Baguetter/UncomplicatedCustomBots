@@ -1,5 +1,6 @@
 ﻿using CommandSystem;
 using NetworkManagerUtils.Dummies;
+using System;
 using System.Collections.Generic;
 using UncomplicatedCustomBots.API.Features;
 using UncomplicatedCustomBots.API.Interfaces;
@@ -16,9 +17,9 @@ namespace UncomplicatedCustomBots.Commands.Admin
         public string RequiredPermission { get; } = "ucb.spawn";
         public string[] Aliases { get; } = ["s", "sp"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
-            string botName = arguments.Count > 0 ? arguments[0] : "Bot";
+            string botName = arguments.Count > 0 ? arguments.At(0) : "Bot";
             ReferenceHub npc = DummyUtils.SpawnDummy(botName);
             Bot bot = new(npc);
             bot.Start();

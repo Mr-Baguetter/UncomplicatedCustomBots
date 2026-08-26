@@ -9,7 +9,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
     public class TriggerHandler : MonoBehaviour
     {
         /// <summary>
-        /// Gets the box collider associated with the trigger.
+        /// Gets the collider associated with the trigger.
         /// </summary>
         public Collider? Collider { get; internal set; }
 
@@ -19,15 +19,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
         public virtual void OnDoorExited(DoorVariant door) { }
         public virtual void OnPickupEntered(Pickup pickup) { }
         public virtual void OnPickupExited(Pickup pickup) { }
-
-        private void Awake()
-        {
-            if (!TryGetComponent<BoxCollider>(out var collider))
-                collider = gameObject.AddComponent<BoxCollider>();
-
-            collider.isTrigger = true;
-            Collider = collider;
-        }
 
         private void OnTriggerEnter(Collider other)
         {

@@ -20,7 +20,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.ui";
         public string[] Aliases { get; } = ["interface", "debugui"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             if (!Player.TryGet(sender, out Player? player))
             {
@@ -41,7 +41,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return true;
             }
 
-            string arg = arguments[0].ToLower();
+            string arg = arguments.At(0).ToLower();
 
             if (Enum.TryParse<DebugUISections>(arg, true, out DebugUISections section))
             {
@@ -50,7 +50,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return true;
             }
 
-            if (arg == "disable" && arguments.Count > 1 && Enum.TryParse<DebugUISections>(arguments[1], true, out DebugUISections disableSection))
+            if (arg == "disable" && arguments.Count > 1 && Enum.TryParse<DebugUISections>(arguments.At(1), true, out DebugUISections disableSection))
             {
                 ui.SetSectionActive(disableSection, false);
                 response = $"Disabled debug UI section: {disableSection}";

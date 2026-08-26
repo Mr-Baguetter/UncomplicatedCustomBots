@@ -1,5 +1,5 @@
 ﻿using CommandSystem;
-using System.Collections.Generic;
+using System;
 
 namespace UncomplicatedCustomBots.API.Interfaces
 {
@@ -17,6 +17,6 @@ namespace UncomplicatedCustomBots.API.Interfaces
 
         public string RequiredPermission { get; }
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response);
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response);
     }
 }

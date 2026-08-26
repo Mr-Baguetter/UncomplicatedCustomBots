@@ -19,9 +19,9 @@ namespace UncomplicatedCustomBots.Commands.Admin
         public string RequiredPermission { get; } = "ucb.goto";
         public string[] Aliases { get; } = ["g", "go"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
-            if (!int.TryParse(arguments[0], out int playerId))
+            if (!int.TryParse(arguments.At(0), out int playerId))
             {
                 response = "Invalid player id!";
                 return false;
@@ -40,9 +40,9 @@ namespace UncomplicatedCustomBots.Commands.Admin
                 return false;
             }
 
-            if (!Enum.TryParse(arguments[1], out RoomName roomName))
+            if (!Enum.TryParse(arguments.At(1), out RoomName roomName))
             {
-                response = $"{arguments[1]} is not a valid room!";
+                response = $"{arguments.At(1)} is not a valid room!";
                 return false;
             }
 

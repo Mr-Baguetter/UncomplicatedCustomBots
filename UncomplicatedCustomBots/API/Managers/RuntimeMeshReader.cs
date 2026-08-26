@@ -77,13 +77,11 @@ namespace UncomplicatedCustomBots.API.Managers
 
         private static Stream? OpenBinStream()
         {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            string resourceName = assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("ExportedMeshes.bin", StringComparison.OrdinalIgnoreCase));
-
+            string resourceName = Plugin.Instance.Assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("ExportedMeshes.bin", StringComparison.OrdinalIgnoreCase));
             if (resourceName == null)
                 return null;
 
-            Stream raw = assembly.GetManifestResourceStream(resourceName)!;
+            Stream raw = Plugin.Instance.Assembly.GetManifestResourceStream(resourceName)!;
             return new GZipStream(raw, CompressionMode.Decompress);
         }
 

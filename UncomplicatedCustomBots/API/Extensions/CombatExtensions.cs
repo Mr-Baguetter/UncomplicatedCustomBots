@@ -104,21 +104,17 @@ namespace UncomplicatedCustomBots.API.Extensions
             DoorVariant door = t.GetComponentInParent<DoorVariant>();
             if (door != null)
             {
-                try
-                {
-                    if (door.IsConsideredOpen())
-                        return true;
+                if (door.IsConsideredOpen())
+                    return true;
 
-                    if (door.IsVisibleThrough)
-                        return true;
+                if (door.IsVisibleThrough)
+                    return true;
 
-                    if (door.GetExactState() > 0.1f)
-                        return true;
-                }
-                catch
-                {
-                    return false;
-                }
+                if (door.GetExactState() > 0.1f)
+                    return true;
+
+                if (door.CanSeeThrough)
+                    return true;
 
                 return false;
             }

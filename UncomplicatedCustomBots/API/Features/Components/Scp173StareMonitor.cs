@@ -81,9 +81,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (p == _bot.Player)
                     continue;
 
-                if (p.IsBot())
-                    continue;
-
                 if (!p.IsAlive || p.Role == RoleTypeId.Spectator || p.Role == RoleTypeId.Destroyed)
                     continue;
 

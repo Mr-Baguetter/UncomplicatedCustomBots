@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using LabApi.Loader.Features.Paths;
 using LabApi.Loader.Features.Yaml.CustomConverters;
 using Serialization;
@@ -34,12 +35,23 @@ namespace UncomplicatedCustomBots.API.Managers
         .Build();
 
         public static string Dir() => Path.Combine(PathManager.Configs.ToString(), "UncomplicatedCustomBots");
-        public static string Dir(string[] path) => Path.Combine([Dir(), ..path]);
+        public static string Dir(string[] path) => Path.Combine([Dir(), .. path]);
 
         public static void TryCreateDirectory(string name) => Directory.CreateDirectory(Dir([name]));
         public static void TryCreateDirectory(string[] path) => Directory.CreateDirectory(Dir(path));
 
         public static string[] GetFilesInDirectory(string name, string filter = "*") => Directory.GetFiles(Dir([name]), filter);
+
+        public static void LoadEmbeddedAsset<T>(string name, Action<T> onParsed)
+        {
+            string resourceName = Plugin.Instance.Assembly.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith(name, StringComparison.OrdinalIgnoreCase)) ?? throw new FileNotFoundException("Resource not found", name);
+            Stream raw = Plugin.Instance.Assembly.GetManifestResourceStream(resourceName)!;
+
+            using StreamReader reader = new(raw);
+            T result = Deserializer.Deserialize<T>(reader);
+
+            onParsed(result);
+        }
 
         public static void ParseYamlFiles<T>(string name, Action<T> onParsed)
         {
@@ -63,7 +75,7 @@ namespace UncomplicatedCustomBots.API.Managers
                         LogManager.Warn($"Yaml file {Path.GetFileName(file)} deserialized to null, skipping");
                         continue;
                     }
-                    
+
                     onParsed(result);
                     count++;
                     LogManager.Debug($"Loaded {typeof(T).Name} from {Path.GetFileName(file)}");

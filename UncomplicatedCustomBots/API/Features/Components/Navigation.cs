@@ -117,6 +117,10 @@ namespace UncomplicatedCustomBots.API.Features.Components
         private readonly Dictionary<DoorVariant, int> _doorFailCounts = [];
         private const int MaxDoorRetryAttempts = 2;
         private DoorVariant _lastFailedDoor = null!;
+        private float _squadShareTimer = 0f;
+        private const float SquadShareInterval = 0.6f;
+        private const float SquadShareMaxAdoptDistance = 8f;
+        private const float SquadShareMaxLeaderDistance = 25f;
         #endregion
 
         private static readonly List<FacilityZone> DeconZones =
@@ -479,6 +483,298 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _elevatorRideOffset = Vector3.zero;
             _currentWaypointIndex = 0;
         }
+
+        #region Squad Waypoint Sharing
+        private bool IsSquadLeader
+        {
+            get
+            {
+                if (_bot == null || !_bot.IsInSquad)
+                    return false;
+
+                Bot? leader = SquadManager.GetSquadLeader(_bot);
+                return leader != null && leader == _bot;
+            }
+        }
+
+        private bool IsSquadFollower
+        {
+            get
+            {
+                if (_bot == null || !_bot.IsInSquad)
+                    return false;
+
+                return !IsSquadLeader;
+            }
+        }
+
+        private Vector3 GetFormationOffset(int memberIndex, List<Vector3> waypoints, int nearestIdx)
+        {
+            if (memberIndex <= 0 || waypoints.Count == 0)
+                return Vector3.zero;
+
+            if (_bot == null)
+                return Vector3.zero;
+
+            IReadOnlyList<Bot> squad = SquadManager.GetSquad(_bot);
+            int squadSize = squad.Count;
+            if (squadSize <= 1)
+                return Vector3.zero;
+
+            Vector3 dir;
+            if (nearestIdx < waypoints.Count - 1)
+            {
+                dir = (waypoints[nearestIdx + 1] - waypoints[nearestIdx]).normalized;
+            }
+            else if (nearestIdx > 0)
+            {
+                dir = (waypoints[nearestIdx] - waypoints[nearestIdx - 1]).normalized;
+            }
+            else
+                dir = transform.forward;
+
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 0.01f)
+                dir = Vector3.forward;
+
+            dir.Normalize();
+            Vector3 right = Vector3.Cross(Vector3.up, dir).normalized;
+
+            float lateral = 0f;
+            float forward = 0f;
+
+            if (squadSize == 2)
+            {
+                lateral = (memberIndex == 1) ? 0.7f : -0.7f;
+                forward = -0.9f;
+            }
+            else if (squadSize == 3)
+            {
+                if (memberIndex == 1)
+                {
+                    lateral = 0.7f;
+                    forward = -0.9f;
+                }
+                else if (memberIndex == 2)
+                {
+                    lateral = -0.7f;
+                    forward = -0.9f;
+                }
+            }
+            else if (squadSize >= 4)
+            {
+                if (memberIndex == 1)
+                {
+                    lateral = 0.7f;
+                    forward = -0.9f;
+                }
+                else if (memberIndex == 2)
+                {
+                    lateral = -0.7f;
+                    forward = -0.9f;
+                }
+                else if (memberIndex == 3)
+                {
+                    lateral = 0f;
+                    forward = -1.8f;
+                }
+                else
+                {
+                    lateral = memberIndex % 2 == 0 ? -0.7f : 0.7f;
+                    forward = -0.9f * ((memberIndex / 2) + 1);
+                }
+            }
+
+            return right * lateral + dir * forward;
+        }
+
+        public bool TryAdoptSquadWaypoints()
+        {
+            if (_bot == null || !_bot.IsInSquad)
+                return false;
+
+            if (IsSquadLeader)
+                return false;
+
+            Bot? leader = SquadManager.GetSquadLeader(_bot);
+            if (leader == null || leader == _bot)
+                return false;
+
+            Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+            if (leaderNav == null || leaderNav == this)
+                return false;
+
+            if (!leaderNav._isNavigating || leaderNav._waypoints.Count == 0 || leaderNav._currentTargetRoom == null)
+                return false;
+
+            if (leaderNav._insideElevator || leaderNav._walkingIntoElevator || leaderNav._waitingForElevator || leaderNav._waitingToEnterElevator)
+                return false;
+
+            if (_insideElevator || _walkingIntoElevator || _waitingForElevator || _waitingToEnterElevator)
+                return false;
+
+            float leaderDist = Vector3.Distance(transform.position, leader.Player.Position);
+            if (leaderDist > SquadShareMaxLeaderDistance)
+                return false;
+
+            if (_currentTargetRoom != null && _currentTargetRoom != leaderNav._currentTargetRoom && _isNavigating)
+                return false;
+
+            if (_currentTargetRoom == null)
+            {
+                _currentTargetRoom = leaderNav._currentTargetRoom;
+            }
+            else if (_currentTargetRoom != leaderNav._currentTargetRoom)
+                return false;
+
+            List<Vector3> source = leaderNav._waypoints;
+            int leaderIdx = leaderNav._currentWaypointIndex;
+            if (leaderIdx < 0)
+                leaderIdx = 0;
+
+            if (leaderIdx >= source.Count)
+                leaderIdx = source.Count - 1;
+
+            int nearestIdx = leaderIdx;
+            float bestDist = float.MaxValue;
+            for (int i = leaderIdx; i < source.Count; i++)
+            {
+                float d = Vector3.Distance(transform.position, source[i]);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    nearestIdx = i;
+                }
+            }
+
+            if (bestDist > SquadShareMaxAdoptDistance)
+                return false;
+
+            if (_isNavigating && _waypoints.Count > 0 && _currentTargetRoom == leaderNav._currentTargetRoom)
+            {
+                if (_waypoints.Count >= source.Count - nearestIdx)
+                {
+                    Vector3 myTail = _waypoints[_waypoints.Count - 1];
+                    Vector3 leaderTail = source[source.Count - 1];
+                    if (Vector3.Distance(myTail, leaderTail) < 1.2f && Mathf.Abs(_waypoints.Count - (source.Count - nearestIdx)) <= 2)
+                        return false;
+                }
+            }
+
+            int memberIndex = SquadManager.GetSquadMemberIndex(_bot);
+            Vector3 offset = GetFormationOffset(memberIndex, source, nearestIdx);
+
+            List<Vector3> newWaypoints = new(source.Count - nearestIdx);
+            for (int i = nearestIdx; i < source.Count; i++)
+            {
+                Vector3 wp = source[i] + offset;
+                if (TrySnapToNavMesh(wp, out Vector3 snapped))
+                {
+                    wp = snapped;
+                }
+                else if (TrySnapToNavMesh(source[i], out Vector3 snappedOrig))
+                {
+                    wp = snappedOrig;
+                }
+                else
+                    wp = source[i];
+
+                if (Vector3.Distance(wp, source[i]) > 1.5f && offset.sqrMagnitude > 0.01f)
+                {
+                    Vector3 reduced = source[i] + offset * 0.5f;
+                    if (TrySnapToNavMesh(reduced, out Vector3 snappedReduced))
+                        wp = snappedReduced;
+                }
+
+                newWaypoints.Add(wp);
+            }
+
+            if (newWaypoints.Count == 0)
+                return false;
+
+            _waypoints.Clear();
+            _waypoints.AddRange(newWaypoints);
+            _currentWaypointIndex = 0;
+            _isNavigating = true;
+            _fallbackRoomAttempted = false;
+            _doorFailCounts.Clear();
+            _lastFailedDoor = null!;
+            _pathFailCooldown = 0f;
+            _pathRecalculateTimer = 0f;
+            _stuckTimer = 0f;
+            _isAttemptingUnstuck = false;
+
+            _waitingForDoor = false;
+            _currentDoor = null!;
+            if (!_insideElevator && !_walkingIntoElevator)
+            {
+                _waitingForElevator = false;
+                _waitingToEnterElevator = false;
+                _approachingElevatorPanel = false;
+            }
+
+            if (_enablePathVisualization)
+                CreatePathVisualization();
+
+            LogManager.Debug($"[SquadShare] {player.DisplayName} adopted {newWaypoints.Count} waypoints from leader {leader.Player.DisplayName} (target {leaderNav._currentTargetRoom.Name}, nearest {nearestIdx}/{source.Count}, offset {offset}, bestDist {bestDist:F1}m)");
+            return true;
+        }
+
+        private void TryPropagateSquadWaypoints()
+        {
+            if (!IsSquadLeader || _waypoints.Count == 0 || _currentTargetRoom == null)
+                return;
+
+            if (_insideElevator || _walkingIntoElevator || _waitingForElevator || _waitingToEnterElevator)
+                return;
+
+            List<Bot> mates = SquadManager.GetSquadmates(_bot);
+            foreach (Bot mate in mates)
+            {
+                if (mate == null || !mate.Player.IsAlive || mate.Player.Role == RoleTypeId.Spectator)
+                    continue;
+
+                Navigation? mateNav = mate.Player.GameObject?.GetComponent<Navigation>();
+                if (mateNav == null || mateNav == this)
+                    continue;
+
+                if (mateNav._insideElevator || mateNav._walkingIntoElevator || mateNav._waitingForElevator || mateNav._waitingToEnterElevator)
+                    continue;
+
+                if (mateNav._isNavigating && mateNav._currentTargetRoom != null && mateNav._currentTargetRoom != _currentTargetRoom)
+                    continue;
+
+                if (mateNav._isNavigating && mateNav._waypoints.Count > 0 && mateNav._currentTargetRoom == _currentTargetRoom)
+                {
+                    if (mateNav._waypoints.Count >= _waypoints.Count)
+                    {
+                        Vector3 mateTail = mateNav._waypoints[mateNav._waypoints.Count - 1];
+                        Vector3 myTail = _waypoints[_waypoints.Count - 1];
+                        if (Vector3.Distance(mateTail, myTail) < 1.0f)
+                            continue;
+                    }
+                }
+
+                float dist = Vector3.Distance(mate.Player.Position, transform.position);
+                if (dist > SquadShareMaxLeaderDistance)
+                    continue;
+
+                mateNav.TryAdoptSquadWaypoints();
+            }
+        }
+
+        public bool TryShareOrAdoptSquadPath()
+        {
+            if (_bot == null || !_bot.IsInSquad)
+                return false;
+
+            if (IsSquadFollower)
+                return TryAdoptSquadWaypoints();
+
+            TryPropagateSquadWaypoints();
+            return false;
+        }
+        #endregion
         #endregion
 
         #region Pathfinding
@@ -651,15 +947,13 @@ namespace UncomplicatedCustomBots.API.Features.Components
                         }
                     }
                 }
-
-                List<FacilityZone> zones = DeconZones;
                 
                 if ((!wasDecontaminated && _isLczDecontaminated) || (!wasDecontaminationImminent && _isLczDecontaminationImminent))
                 {
                     if (_isLczDecontaminationImminent && !_isLczDecontaminated)
                         LogManager.Info("LCZ decontamination is imminent (less than 60 seconds). Evacuating bots from LCZ.");
 
-                    HandleZoneCompromised(zones);
+                    HandleZoneCompromised(DeconZones);
                 }
             }
 
@@ -856,12 +1150,20 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 }
                 _navMeshRetryCount = 0;
 
+                if (IsSquadFollower)
+                {
+                    if (TryAdoptSquadWaypoints())
+                        return;
+                }
+
                 Vector3 targetPosition = GetPathTargetPosition(currentRoom);
 
                 if (BuildNavMeshPath(targetPosition))
                 {
                     if (_enablePathVisualization)
                         CreatePathVisualization();
+
+                    TryPropagateSquadWaypoints();
                         
                     return;
                 }
@@ -903,7 +1205,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             Vector3? classDDoorFront = GetClassDInitialDoorTarget(currentRoom);
             if (classDDoorFront != null)
             {
-                LogManager.Debug($"Class-D initial waypoint: door at {classDDoorFront.Value}");
+                LogManager.Debug($"ClassD initial waypoint: door at {classDDoorFront.Value}");
                 return classDDoorFront.Value;
             }
 
@@ -1260,7 +1562,21 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     if (Vector3.Distance(doorPos, from) < 0.5f || Vector3.Distance(doorPos, to) < 0.5f)
                         continue;
 
-                    Vector3 pastPos = doorPos + segmentDir * DoorWaypointClearanceDistance;
+                    Vector3 doorForward = door.transform.forward;
+                    doorForward.y = 0f;
+                    if (doorForward.sqrMagnitude < 0.001f)
+                    {
+                        doorForward = segmentDir;
+                        doorForward.y = 0f;
+                    }
+
+                    doorForward.Normalize();
+                    if (Vector3.Dot(doorForward, segmentDir) < 0f)
+                    {
+                        doorForward = -doorForward;
+                    }
+
+                    Vector3 pastPos = doorPos + doorForward * DoorWaypointClearanceDistance;
                     bool insertPast = Vector3.Distance(pastPos, to) >= 0.5f;
 
                     insertions.Add((i + 1, doorPos, pastPos, insertPast));
@@ -1569,7 +1885,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             {
                 SyncAgentToTransform();
                 _agent.speed = speed > 0f ? speed : _speed;
-                bool targetOnMesh;
+                bool targetOnMesh = false;
                 try
                 {
                     if (NavMesh.SamplePosition(target, out NavMeshHit th, 2f, GetNavMeshAreaMask()))
@@ -1578,10 +1894,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
                         targetOnMesh = true;
                         if (Vector3.Distance(_agent.destination, agentTarget) > 0.5f || !_agent.hasPath)
                             _agent.SetDestination(agentTarget);
-                    }
-                    else
-                    {
-                        targetOnMesh = false;
                     }
                 }
                 catch
@@ -1868,7 +2180,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             return true;
         }
-
 
         private DoorVariant FindDoorOnPath(Vector3 waypoint)
         {
@@ -3048,7 +3359,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (!_enablePathVisualization || _waypoints.Count == 0)
                 return;
 
-            DrawableLines.IsDebugModeEnabled = true;
+            DrawableLines.IsDebugModeEnabled = Plugin.Instance.Config.Debug;
 
             int completedCount = _currentWaypointIndex;
             int remainingCount = _waypoints.Count - completedCount;
@@ -3261,6 +3572,27 @@ namespace UncomplicatedCustomBots.API.Features.Components
             else if (_enablePatrolMode)
             {
                 HandlePatrolMode();
+            }
+
+            _squadShareTimer += Time.deltaTime;
+            if (_squadShareTimer >= SquadShareInterval)
+            {
+                _squadShareTimer = 0f;
+                if (_bot != null && _bot.IsInSquad && _bot.Player.IsAlive)
+                {
+                    if (IsSquadFollower)
+                    {
+                        if (!_waitingForDoor && !_insideElevator && !_walkingIntoElevator && !_waitingForElevator && !_waitingToEnterElevator && !_approachingElevatorPanel)
+                        {
+                            if (_isNavigating || SquadManager.TryGetSquadDestination(_bot, out _))
+                                TryAdoptSquadWaypoints();
+                        }
+                    }
+                    else if (IsSquadLeader && _isNavigating && _waypoints.Count > 0)
+                    {
+                        TryPropagateSquadWaypoints();
+                    }
+                }
             }
 
             _pathRecalculateTimer += Time.deltaTime;

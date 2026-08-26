@@ -10,6 +10,7 @@ using System.Reflection;
 using System.Reflection.Emit;
 using UncomplicatedCustomBots.API.Managers;
 
+// Fixes dummies being unable to fire revolvers.
 namespace UncomplicatedCustomBots.Harmony.Patches
 {
     [HarmonyPatch]
@@ -89,13 +90,13 @@ namespace UncomplicatedCustomBots.Harmony.Patches
             
             List<CodeInstruction> nullCheckInstructions =
             [
-                // Load the NetworkReader parameter (arg.1, since arg.0 is 'this')
+                // Load the NetworkReader parameter
                 new CodeInstruction(OpCodes.Ldarg_1),
                 
                 // Check if it's not null
                 new CodeInstruction(OpCodes.Brtrue_S, skipLabel),
                 
-                // If null, just return (this will create a default initialized ShotBacktrackData)
+                // If null return (this will create a default initialized ShotBacktrackData)
                 new CodeInstruction(OpCodes.Ret),
                 
                 // Label for normal execution when NetworkReader is not null
@@ -124,7 +125,7 @@ namespace UncomplicatedCustomBots.Harmony.Patches
                 // Check if it's not null
                 new CodeInstruction(OpCodes.Brtrue_S, skipLabel),
                 
-                // If null, return early (creates default RelativePosition)
+                // If null return (creates default RelativePosition)
                 new CodeInstruction(OpCodes.Ret),
                 
                 // Label for normal execution

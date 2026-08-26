@@ -24,7 +24,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
         public string RequiredPermission { get; } = "debug.bot";
         public string[] Aliases { get; } = ["b"];
 
-        public bool Execute(List<string> arguments, ICommandSender sender, out string response)
+        public bool Execute(ArraySegment<string> arguments, ICommandSender sender, out string response)
         {
             if (arguments.Count < 2)
             {
@@ -32,7 +32,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 return false;
             }
 
-            string botIdentifier = arguments[0];
+            string botIdentifier = arguments.At(0);
             Bot? targetBot = null;
 
             if (int.TryParse(botIdentifier, out int botId))
@@ -62,7 +62,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
             string botDisplayName = targetBot!.Player!.DisplayName;
             int botPlayerId = targetBot!.Player.PlayerId;
 
-            string action = arguments[1].ToLower();
+            string action = arguments.At(1).ToLower();
 
             if (action == "disable")
             {
@@ -73,7 +73,7 @@ namespace UncomplicatedCustomBots.Commands.Debug
                     return true;
                 }
 
-                string sectionName = arguments[2];
+                string sectionName = arguments.At(2);
                 if (Enum.TryParse<BotDebugSections>(sectionName, true, out BotDebugSections disableSection))
                 {
                     debugComponent.ActiveSections &= ~disableSection;

@@ -1,7 +1,9 @@
+using LabApi.Features.Wrappers;
 using PlayerRoles;
 using System.Collections.Generic;
 using System.Linq;
 using UncomplicatedCustomBots.API.Features;
+using UncomplicatedCustomBots.API.Features.Components;
 using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Managers
@@ -73,6 +75,57 @@ namespace UncomplicatedCustomBots.API.Managers
                     result.Add(b);
             }
             return result;
+        }
+
+        public static IReadOnlyList<Bot> GetSquad(Bot bot)
+        {
+            if (!bot.IsInSquad || !_squads.TryGetValue(bot.SquadId, out List<Bot>? squad))
+                return [];
+
+            return squad;
+        }
+
+        public static Bot? GetSquadLeader(Bot bot)
+        {
+            if (!bot.IsInSquad || !_squads.TryGetValue(bot.SquadId, out List<Bot>? squad) || squad.Count == 0)
+                return null;
+
+            foreach (Bot b in squad)
+            {
+                if (b.Player.IsAlive && b.Player.Role != RoleTypeId.Spectator)
+                    return b;
+            }
+
+            return squad[0];
+        }
+
+        public static bool IsSquadLeader(Bot bot)
+        {
+            Bot? leader = GetSquadLeader(bot);
+            return leader != null && leader == bot;
+        }
+
+        public static int GetSquadMemberIndex(Bot bot)
+        {
+            if (!bot.IsInSquad || !_squads.TryGetValue(bot.SquadId, out List<Bot>? squad))
+                return -1;
+
+            return squad.IndexOf(bot);
+        }
+
+        public static bool TryGetSquadDestination(Bot bot, out Room? targetRoom)
+        {
+            targetRoom = null;
+            Bot? leader = GetSquadLeader(bot);
+            if (leader == null || leader == bot)
+                return false;
+
+            Navigation? nav = leader.Player.GameObject?.GetComponent<Navigation>();
+            if (nav == null || !nav.IsNavigating || nav.CurrentTarget == null)
+                return false;
+
+            targetRoom = nav.CurrentTarget;
+            return true;
         }
 
         public static Vector3 GetSquadAveragePosition(Bot bot, List<Bot>? cachedMates = null)

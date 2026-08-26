@@ -324,10 +324,61 @@ namespace UncomplicatedCustomBots.API.Features.States
             return visiblePoints >= 2;
         }
 
+        private bool TryShareSquadWaypoints()
+        {
+            if (!Bot.IsSquadBot || !Bot.IsInSquad)
+                return false;
+
+            if (SquadManager.IsSquadLeader(Bot))
+                return false;
+
+            if (_navigator.IsInsideElevatorChamber || _navigator.IsWalkingIntoElevator || _navigator.IsWaitingForElevator || _navigator.IsWaitingToEnterElevator)
+                return false;
+
+            Bot? leader = SquadManager.GetSquadLeader(Bot);
+            if (leader == null || leader == Bot)
+                return false;
+
+            Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+            if (leaderNav == null || !leaderNav.IsNavigating || leaderNav.CurrentTarget == null)
+                return false;
+
+            float leaderDist = Vector3.Distance(Bot.Player.Position, leader.Player.Position);
+            if (leaderDist > 30f)
+                return false;
+
+            if (_navigator.CurrentTarget == leaderNav.CurrentTarget && _navigator.CurrentPath.Count > 0 && _navigator.IsNavigating)
+                return false;
+
+            if (_navigator.TryAdoptSquadWaypoints())
+            {
+                _isWaiting = false;
+                _idleTimer = 0f;
+                return true;
+            }
+
+            if (_navigator.CurrentTarget != leaderNav.CurrentTarget && !_navigator.IsWaitingForDoor)
+            {
+                int idx = SquadManager.GetSquadMemberIndex(Bot);
+                if (idx > 0)
+                    _squadRegroupTimer = idx * 0.1f;
+
+                _navigator.SetDestination(leaderNav.CurrentTarget);
+                _isWaiting = false;
+                _navigator.TryAdoptSquadWaypoints();
+                return true;
+            }
+
+            return false;
+        }
+
         private bool HandleSquadGrouping()
         {
             if (!Bot.IsSquadBot || !Bot.IsInSquad)
                 return false;
+
+            if (TryShareSquadWaypoints())
+                return true;
 
             _squadRegroupTimer += Time.deltaTime;
             if (_squadRegroupTimer < SQUAD_REGROUP_CHECK_INTERVAL)
@@ -363,6 +414,32 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             if (!_navigator.IsNavigating && !_navigator._enablePatrolMode)
             {
+                if (Bot.IsInSquad && !SquadManager.IsSquadLeader(Bot))
+                {
+                    Bot? leader = SquadManager.GetSquadLeader(Bot);
+                    if (leader != null)
+                    {
+                        Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+                        if (leaderNav != null && leaderNav.IsNavigating && leaderNav.CurrentTarget != null)
+                        {
+                            float leaderDist = Vector3.Distance(Bot.Player.Position, leader.Player.Position);
+                            if (leaderDist <= 30f)
+                            {
+                                if (_navigator.TryAdoptSquadWaypoints())
+                                {
+                                    _isWaiting = false;
+                                    return;
+                                }
+
+                                _navigator.SetDestination(leaderNav.CurrentTarget);
+                                _isWaiting = false;
+                                _navigator.TryAdoptSquadWaypoints();
+                                return;
+                            }
+                        }
+                    }
+                }
+
                 if (ObjectivesHandler.TryAssignObjective(Bot))
                 {
                     _navigator.StartObjective();
@@ -372,13 +449,38 @@ namespace UncomplicatedCustomBots.API.Features.States
                 if (!_isWaiting)
                 {
                     _isWaiting = true;
-                    _idleTimer = 5.0f;
+                    float stagger = 0f;
+                    if (Bot.IsInSquad)
+                    {
+                        int idx = SquadManager.GetSquadMemberIndex(Bot);
+                        if (idx > 0)
+                            stagger = idx * 0.35f;
+                    }
+                    _idleTimer = 5.0f + stagger;
                 }
                 else
                 {
                     _idleTimer -= Time.deltaTime;
                     if (_idleTimer <= 0)
                     {
+                        if (Bot.IsInSquad && !SquadManager.IsSquadLeader(Bot))
+                        {
+                            Bot? leader = SquadManager.GetSquadLeader(Bot);
+                            Navigation? leaderNav = leader?.Player.GameObject?.GetComponent<Navigation>();
+                            if (leaderNav != null && leaderNav.IsNavigating && leaderNav.CurrentTarget != null)
+                            {
+                                if (_navigator.TryAdoptSquadWaypoints())
+                                {
+                                    _isWaiting = false;
+                                    return;
+                                }
+
+                                _navigator.SetDestination(leaderNav.CurrentTarget);
+                                _isWaiting = false;
+                                return;
+                            }
+                        }
+
                         Room? randomRoom = GetRandomUnblacklistedRoom();
                         if (randomRoom != null)
                             _navigator.SetDestination(randomRoom);
@@ -386,6 +488,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                         _isWaiting = false;
                     }
                 }
+            }
+            else if (_navigator.IsNavigating && Bot.IsInSquad && !SquadManager.IsSquadLeader(Bot))
+            {
+                if (_squadRegroupTimer <= 0f)
+                    TryShareSquadWaypoints();
             }
         }
 

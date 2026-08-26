@@ -2,10 +2,12 @@ using DrawableLine;
 using Interactables.Interobjects;
 using Interactables.Interobjects.DoorUtils;
 using LabApi.Features.Wrappers;
+using MapGeneration;
 using MapGeneration.RoomConnectors;
 using MEC;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -63,6 +65,9 @@ namespace UncomplicatedCustomBots.API.Managers
 
         public static List<CustomNavBlocker> CustomNavBlocker = [];
         public static List<CustomNavMesh> CustomNavMesh = [];
+        public static List<NavBlocker> ExternalNavBlockers = [];
+        public static readonly List<NavBlocker> SessionNavBlockers = [];
+        private static readonly List<Mesh> _navBlockerMeshes = [];
 
         private static readonly List<PrimitiveObjectToy> _customPrimitiveToys = [];
 
@@ -70,6 +75,7 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             CustomNavBlocker.Clear();
             CustomNavMesh.Clear();
+            ExternalNavBlockers.Clear();
 
             YamlLoader.ParseYamlFiles<CustomNavBlocker>("navblockers", (yaml) =>
             {
@@ -82,6 +88,19 @@ namespace UncomplicatedCustomBots.API.Managers
                 if (!string.IsNullOrWhiteSpace(yaml.ObjectName))
                     CustomNavMesh.Add(yaml);
             });
+
+            try
+            {
+                YamlLoader.LoadEmbeddedAsset<List<NavBlocker>>("internalblockers.yaml", (yaml) =>
+                {
+                    ExternalNavBlockers = yaml ?? [];
+                });
+            }
+            catch (Exception ex)
+            {
+                LogManager.Debug($"NavMesh internalblockers.yaml not found or failed to load: {ex.Message}");
+                ExternalNavBlockers = [];
+            }
 
             BuildWithDelay(0.2f);
         }
@@ -160,6 +179,9 @@ namespace UncomplicatedCustomBots.API.Managers
                 yield return Timing.WaitForOneFrame;
 
                 ApplyCustomNavOverrides(sources);
+                yield return Timing.WaitForOneFrame;
+
+                ApplyNavBlockerOverrides(sources);
                 yield return Timing.WaitForOneFrame;
 
                 for (int i = sources.Count - 1; i >= 0; i--)
@@ -395,6 +417,7 @@ namespace UncomplicatedCustomBots.API.Managers
             Features.NavigationSystem.ElevatorLinkRegistry.Clear();
             ClearElevatorMeshes();
             ClearCustomPrimitives();
+            ClearNavBlockerMeshes();
             UnregisterElevatorEvents();
         }
 
@@ -402,6 +425,23 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             CustomNavMesh.Clear();
             CustomNavBlocker.Clear();
+        }
+
+        private static void ClearNavBlockerMeshes()
+        {
+            foreach (Mesh m in _navBlockerMeshes)
+            {
+                try
+                {
+                    if (m != null)
+                        UnityEngine.Object.Destroy(m);
+                }
+                catch
+                {
+                }
+            }
+
+            _navBlockerMeshes.Clear();
         }
 
         private static void ClearCustomPrimitives()
@@ -896,6 +936,398 @@ namespace UncomplicatedCustomBots.API.Managers
 
             if (blockerApplied > 0 || meshApplied > 0)
                 LogManager.Info($"NavMesh custom overrides applied: walkable={meshApplied}, blocked={blockerApplied} (blockers={CustomNavBlocker.Count}, meshes={CustomNavMesh.Count}) primitives={_customPrimitiveToys.Count}");
+        }
+
+        private static void ApplyNavBlockerOverrides(List<NavMeshBuildSource> sources)
+        {
+            List<NavBlocker> all = [];
+            all.AddRange(ExternalNavBlockers);
+            all.AddRange(SessionNavBlockers);
+
+            if (all.Count == 0)
+                return;
+
+            int added = 0;
+            int skipped = 0;
+
+            foreach (NavBlocker blocker in all)
+            {
+                if (blocker == null || string.IsNullOrWhiteSpace(blocker.RoomName) || blocker.LocalPos == null || blocker.LocalPos.Count == 0)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                List<Room> targetRooms = FindRoomsByName(blocker.RoomName);
+                if (targetRooms.Count == 0)
+                {
+                    LogManager.Debug($"NavBlocker '{blocker.RoomName}' matched no rooms.");
+                    skipped++;
+                    continue;
+                }
+
+                HashSet<Room> dedupRooms = [.. targetRooms];
+
+                foreach (Room room in dedupRooms)
+                {
+                    if (room == null || room.Transform == null)
+                        continue;
+
+                    Mesh? mesh = CreateNavBlockerMesh(blocker.LocalPos);
+                    if (mesh == null)
+                    {
+                        LogManager.Debug($"NavBlocker '{blocker.RoomName}' produced null mesh (points={blocker.LocalPos.Count}).");
+                        skipped++;
+                        continue;
+                    }
+
+                    _navBlockerMeshes.Add(mesh);
+                    Matrix4x4 tr = room.Transform.localToWorldMatrix;
+                    sources.Add(new NavMeshBuildSource
+                    {
+                        shape = NavMeshBuildSourceShape.Mesh,
+                        sourceObject = mesh,
+                        area = NotWalkableArea,
+                        transform = tr
+                    });
+
+                    added++;
+                    LogManager.Debug($"NavBlocker '{blocker.RoomName}' added mesh blocker for room '{room.GameObject.name}' ({room.Name}) points={blocker.LocalPos.Count} tr={room.Transform.position}");
+                }
+            }
+
+            if (added > 0 || skipped > 0)
+                LogManager.Info($"NavBlocker overrides applied: added={added}, skipped={skipped}, total={all.Count}");
+        }
+
+        public static List<Room> FindRoomsByName(string name)
+        {
+            List<Room> result = [];
+
+            if (string.IsNullOrWhiteSpace(name))
+                return result;
+
+            string trimmed = name.Trim();
+
+            if (Enum.TryParse(trimmed, true, out RoomName parsed))
+            {
+                foreach (Room r in Room.Get(parsed))
+                {
+                    if (r != null)
+                        result.Add(r);
+                }
+            }
+
+            string lower = trimmed.ToLowerInvariant();
+            foreach (Room r in Room.List)
+            {
+                if (r == null || r.GameObject == null)
+                    continue;
+
+                string goName = r.GameObject.name;
+                if (goName.Equals(trimmed, StringComparison.OrdinalIgnoreCase) || goName.ToLowerInvariant().Contains(lower))
+                {
+                    if (!result.Contains(r))
+                        result.Add(r);
+                }
+                else if (r.Name.ToString().Equals(trimmed, StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!result.Contains(r))
+                        result.Add(r);
+                }
+            }
+
+            return result;
+        }
+
+        private static Mesh? CreateNavBlockerMesh(List<Vector3> localPos)
+        {
+            if (localPos == null || localPos.Count == 0)
+                return null;
+
+            List<Vector3> pts = new(localPos);
+
+            if (pts.Count > 1 && Vector3.Distance(pts[0], pts[pts.Count - 1]) < 0.001f)
+                pts.RemoveAt(pts.Count - 1);
+
+            for (int i = pts.Count - 1; i >= 0; i--)
+            {
+                bool dup = false;
+                for (int j = 0; j < i; j++)
+                {
+                    if (Vector3.Distance(pts[i], pts[j]) < 0.001f)
+                    {
+                        dup = true;
+                        break;
+                    }
+                }
+
+                if (dup)
+                    pts.RemoveAt(i);
+            }
+
+            if (pts.Count < 3)
+            {
+                if (pts.Count == 1)
+                    return CreateNavBlockerBoxMesh(pts[0], new Vector3(1f, 3f, 1f));
+
+                if (pts.Count == 2)
+                {
+                    Vector3 a = pts[0];
+                    Vector3 b = pts[1];
+                    Vector3 mid = (a + b) * 0.5f;
+                    Vector3 dir = b - a;
+                    float len = dir.magnitude;
+                    if (len < 0.1f)
+                        return CreateNavBlockerBoxMesh(mid, new Vector3(1f, 3f, 1f));
+
+                    dir.Normalize();
+                    Vector3 up = Vector3.up;
+                    Vector3 right = Vector3.Cross(up, dir).normalized;
+                    if (right.sqrMagnitude < 0.001f)
+                        right = Vector3.right;
+
+                    float width = 0.6f;
+                    List<Vector3> quad =
+                    [
+                        a + right * width * 0.5f,
+                        a - right * width * 0.5f,
+                        b - right * width * 0.5f,
+                        b + right * width * 0.5f
+                    ];
+
+                    return CreateNavBlockerPrismMesh(quad, 3f);
+                }
+
+                return null;
+            }
+
+            bool isPlanar = IsPlanarXZ(pts);
+            if (isPlanar)
+            {
+                pts = SortPointsByAngleXZ(pts);
+                return CreateNavBlockerPrismMesh(pts, 3f);
+            }
+
+            return CreateNavBlockerConvexMesh(pts);
+        }
+
+        private static bool IsPlanarXZ(List<Vector3> pts)
+        {
+            if (pts.Count < 3)
+                return true;
+
+            float minY = pts[0].y;
+            float maxY = pts[0].y;
+            foreach (Vector3 p in pts)
+            {
+                if (p.y < minY)
+                    minY = p.y;
+
+                if (p.y > maxY)
+                    maxY = p.y;
+            }
+
+            return (maxY - minY) < 0.05f;
+        }
+
+        private static List<Vector3> SortPointsByAngleXZ(List<Vector3> pts)
+        {
+            Vector3 centroid = Vector3.zero;
+            foreach (Vector3 p in pts)
+                centroid += p;
+
+            centroid /= pts.Count;
+
+            return pts.OrderBy(p => Mathf.Atan2(p.z - centroid.z, p.x - centroid.x)).ToList();
+        }
+
+        private static Mesh CreateNavBlockerPrismMesh(List<Vector3> basePts, float height)
+        {
+            int n = basePts.Count;
+            Vector3[] verts = new Vector3[n * 2];
+            for (int i = 0; i < n; i++)
+            {
+                verts[i] = basePts[i];
+                verts[i + n] = basePts[i] + Vector3.up * height;
+            }
+
+            List<int> tris = new((n - 2) * 6 + n * 6);
+
+            for (int i = 1; i < n - 1; i++)
+            {
+                tris.Add(0);
+                tris.Add(i + 1);
+                tris.Add(i);
+            }
+
+            for (int i = 1; i < n - 1; i++)
+            {
+                tris.Add(n);
+                tris.Add(n + i);
+                tris.Add(n + i + 1);
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                int nxt = (i + 1) % n;
+                int b0 = i;
+                int b1 = nxt;
+                int t0 = n + i;
+                int t1 = n + nxt;
+
+                tris.Add(b0);
+                tris.Add(b1);
+                tris.Add(t1);
+                tris.Add(b0);
+                tris.Add(t1);
+                tris.Add(t0);
+            }
+
+            Mesh mesh = new()
+            {
+                name = $"NavBlockerPrism_{n}_{height}"
+            };
+            
+            if (verts.Length > 65535)
+                mesh.indexFormat = IndexFormat.UInt32;
+
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            mesh.RecalculateNormals();
+            mesh.UploadMeshData(false);
+            return mesh;
+        }
+
+        private static Mesh CreateNavBlockerBoxMesh(Vector3 center, Vector3 size)
+        {
+            Vector3 he = size * 0.5f;
+            Vector3[] verts =
+            [
+                center + new Vector3(-he.x, -he.y, -he.z),
+                center + new Vector3( he.x, -he.y, -he.z),
+                center + new Vector3( he.x, -he.y,  he.z),
+                center + new Vector3(-he.x, -he.y,  he.z),
+                center + new Vector3(-he.x,  he.y, -he.z),
+                center + new Vector3( he.x,  he.y, -he.z),
+                center + new Vector3( he.x,  he.y,  he.z),
+                center + new Vector3(-he.x,  he.y,  he.z),
+            ];
+
+            int[] tris =
+            [
+                0, 2, 1, 0, 3, 2,
+                4, 5, 6, 4, 6, 7,
+                0, 1, 5, 0, 5, 4,
+                1, 2, 6, 1, 6, 5,
+                2, 3, 7, 2, 7, 6,
+                3, 0, 4, 3, 4, 7
+            ];
+
+            Mesh mesh = new()
+            {
+                name = $"NavBlockerBox_{center}_{size}"
+            };
+            
+            mesh.SetVertices(verts);
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            mesh.RecalculateNormals();
+            mesh.UploadMeshData(false);
+            return mesh;
+        }
+
+        private static Mesh CreateNavBlockerConvexMesh(List<Vector3> pts)
+        {
+            Vector3 centroid = Vector3.zero;
+            foreach (Vector3 p in pts)
+                centroid += p;
+
+            centroid /= pts.Count;
+
+            Mesh mesh = new()
+            {
+                name = $"NavBlockerConvex_{pts.Count}"
+            };
+
+            if (pts.Count > 65535)
+                mesh.indexFormat = IndexFormat.UInt32;
+
+            mesh.SetVertices(pts);
+
+            List<int> tris = [];
+            for (int i = 0; i < pts.Count; i++)
+            {
+                for (int j = i + 1; j < pts.Count; j++)
+                {
+                    for (int k = j + 1; k < pts.Count; k++)
+                    {
+                        Vector3 a = pts[i];
+                        Vector3 b = pts[j];
+                        Vector3 c = pts[k];
+                        Vector3 normal = Vector3.Cross(b - a, c - a).normalized;
+                        if (normal.sqrMagnitude < 0.001f)
+                            continue;
+
+                        bool allInside = true;
+                        bool positiveSide = false;
+                        bool negativeSide = false;
+                        for (int m = 0; m < pts.Count; m++)
+                        {
+                            if (m == i || m == j || m == k)
+                                continue;
+
+                            float d = Vector3.Dot(pts[m] - a, normal);
+                            if (d > 0.01f)
+                                positiveSide = true;
+
+                            if (d < -0.01f)
+                                negativeSide = true;
+
+                            if (positiveSide && negativeSide)
+                            {
+                                allInside = false;
+                                break;
+                            }
+                        }
+
+                        if (!allInside)
+                            continue;
+
+                        if (positiveSide && !negativeSide)
+                        {
+                            tris.Add(k);
+                            tris.Add(j);
+                            tris.Add(i);
+                        }
+                        else
+                        {
+                            tris.Add(i);
+                            tris.Add(j);
+                            tris.Add(k);
+                        }
+
+                        if (tris.Count > pts.Count * 12)
+                            break;
+                    }
+
+                    if (tris.Count > pts.Count * 12)
+                        break;
+                }
+
+                if (tris.Count > pts.Count * 12)
+                    break;
+            }
+
+            if (tris.Count < 12)
+                return CreateNavBlockerPrismMesh(pts, 3f);
+
+            mesh.SetTriangles(tris, 0);
+            mesh.RecalculateBounds();
+            mesh.RecalculateNormals();
+            mesh.UploadMeshData(false);
+            return mesh;
         }
 
         private static void LogUnknownSources(List<NavMeshBuildSource> sources)
