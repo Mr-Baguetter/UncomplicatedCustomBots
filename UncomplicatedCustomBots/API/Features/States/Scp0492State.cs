@@ -120,6 +120,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             {
                 nav.enabled = true;
             }
+            
             if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
             {
                 follower.enabled = false;

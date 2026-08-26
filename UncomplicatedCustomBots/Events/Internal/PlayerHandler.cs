@@ -5,6 +5,7 @@ using LabApi.Features.Wrappers;
 using MEC;
 using Mirror;
 using PlayerRoles;
+using PlayerRoles.PlayableScps.Scp3114;
 using PlayerStatsSystem;
 using System.Collections.Generic;
 using UncomplicatedCustomBots.API.Extensions;
@@ -155,8 +156,39 @@ namespace UncomplicatedCustomBots.Events.Internal
             bot.Context.RecordAttacker(ev.Attacker, damage);
             bot.Context.Target = ev.Attacker;
 
-            if (bot.State is not CombatState && bot.Player.Role != RoleTypeId.Spectator)
-                bot.ChangeState(new CombatState(bot));
+            if (bot.Player.Role != RoleTypeId.Spectator)
+            {
+                switch (bot.Player.Role)
+                {
+                    case RoleTypeId.Scp049 when bot.State is not Scp049State:
+                            bot.ChangeState(new Scp049State(bot));
+                        break;
+
+                    case RoleTypeId.Scp106 when bot.State is not Scp106State:
+                            bot.ChangeState(new Scp106State(bot));
+                        break;
+
+                    case RoleTypeId.Scp939 when bot.State is not Scp939State:
+                            bot.ChangeState(new Scp939State(bot));
+                        break;
+
+                    case RoleTypeId.Scp173 when bot.State is not Scp173State:
+                            bot.ChangeState(new Scp173State(bot));
+                        break;
+
+                    case RoleTypeId.Scp3114 when bot.State is not Scp3114State:
+                        Scp3114Role scp3114 = (bot.Player.RoleBase as Scp3114Role)!;
+                        if (!scp3114.Disguised)
+                            bot.ChangeState(new Scp3114State(bot));
+                        break;
+
+                    default:
+                        if (bot.State is not CombatState)
+                            bot.ChangeState(new CombatState(bot));
+
+                        break;
+                }
+            }
         }
     }
 }

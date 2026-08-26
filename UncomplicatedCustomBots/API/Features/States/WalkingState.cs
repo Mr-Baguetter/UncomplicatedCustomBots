@@ -5,6 +5,7 @@ using System;
 using UncomplicatedCustomBots.API.Struct;
 using UnityEngine;
 using UncomplicatedCustomBots.API.Managers;
+using PlayerRoles.PlayableScps.Scp173;
 using PlayerRoles.PlayableScps.Scp3114;
 using UncomplicatedCustomBots.Events.Handlers;
 using LabApi.Features.Extensions;
@@ -33,7 +34,10 @@ namespace UncomplicatedCustomBots.API.Features.States
         private const float SENSED_EVENT_MEMORY = 5f;
         private const float GrenadeFleeRange = 10f;
         private const float SQUAD_REGROUP_CHECK_INTERVAL = 2f;
-        private const float SQUAD_REGROUP_MIN_DISTANCE = 5f;
+        private float _scp173ObservedDuration = 0f;
+        private Scp173ObserversTracker _scp173Tracker = null!;
+        private Scp173Role _scp173Role = null!;
+        private const float SCP173_STARE_TRIGGER = 1f;
 
         public WalkingState(Bot bot) : base(bot)
         {
@@ -60,6 +64,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
             else
                 _navigator.Init(speed: 18f, enablePatrol: false);
+
+            _scp173ObservedDuration = 0f;
         }
 
         public override void Update()
@@ -108,7 +114,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 }
 
                 Player? combatTarget = DetectCombatTarget();
-                if (combatTarget != null && Bot.Player.Team != Team.SCPs && !inElevator)
+                if (combatTarget != null && Targeting.IsValidTarget(Bot, combatTarget) && !inElevator)
                 {
                     Bot.ChangeState(new CombatState(Bot));
                     return;
@@ -168,6 +174,40 @@ namespace UncomplicatedCustomBots.API.Features.States
                     }
                 }
             }
+
+            if (Bot.Player.Role == RoleTypeId.Scp173 && !_navigator.IsInsideElevatorChamber && !_navigator.IsWalkingIntoElevator && !_navigator.IsWaitingForElevator && !_navigator.IsWaitingToEnterElevator)
+            {
+                Scp173Role? scpRole = Bot.Player.RoleBase as Scp173Role;
+                if (scpRole != _scp173Role || _scp173Tracker == null)
+                {
+                    _scp173Role = scpRole!;
+                    if (_scp173Role != null)
+                    {
+                        _scp173Role.SubroutineModule.TryGetSubroutine(out _scp173Tracker);
+                    }
+                    else
+                        _scp173Tracker = null!;
+                }
+
+                if (_scp173Tracker != null)
+                {
+                    if (_scp173Tracker.IsObserved)
+                    {
+                        _scp173ObservedDuration += Time.deltaTime;
+                    }
+                    else
+                        _scp173ObservedDuration = 0f;
+
+                    if (_scp173ObservedDuration >= SCP173_STARE_TRIGGER)
+                    {
+                        LogManager.Debug($"WalkingState: {Bot.Player.DisplayName} stared at for {_scp173ObservedDuration:F2}s -> Scp173State");
+                        Bot.ChangeState(new Scp173State(Bot));
+                        return;
+                    }
+                }
+            }
+            else
+                _scp173ObservedDuration = 0f;
 
             CheckForItems();
             InvestigateSensedEvents();

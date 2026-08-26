@@ -170,7 +170,9 @@ namespace UncomplicatedCustomBots.API.Features.States
             {
                 _ragdollCheckTimer = 0f;
                 if (_ragdollTarget == null)
+                {
                     FindNearestRagdoll();
+                }
                 else
                 {
                     BasicRagdoll basicRagdoll = _ragdollTarget.GetComponent<BasicRagdoll>();

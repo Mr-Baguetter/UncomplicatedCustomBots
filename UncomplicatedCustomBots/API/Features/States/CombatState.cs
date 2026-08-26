@@ -290,9 +290,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
                 try
                 {
-                    new ThrowableItemRequestMessage(throwableItem.Base, RequestType.BeginThrow).SendToAuthenticated();
-                    Timing.CallDelayed(Timing.WaitForSeconds(0.5f), () => new ThrowableItemRequestMessage(throwableItem.Base, RequestType.ConfirmThrowFullForce).SendToAuthenticated());
-                    //throwableItem.Base.ServerThrow(throwableItem.FullThrowStartVelocity, throwableItem.FullThrowUpwardsFactor, throwableItem.FullThrowStartTorque, GetLimitedVelocity(throwableItem.CurrentOwner?.Velocity ?? Vector3.one));
+                    throwableItem.Base.ServerThrow(throwableItem.FullThrowStartVelocity, throwableItem.FullThrowUpwardsFactor, throwableItem.FullThrowStartTorque, GetLimitedVelocity(throwableItem.CurrentOwner?.Velocity ?? Vector3.one));
                 }
                 catch (System.Exception ex)
                 {

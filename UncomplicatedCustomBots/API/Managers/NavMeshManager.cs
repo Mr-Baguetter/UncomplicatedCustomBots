@@ -64,6 +64,8 @@ namespace UncomplicatedCustomBots.API.Managers
         public static List<CustomNavBlocker> CustomNavBlocker = [];
         public static List<CustomNavMesh> CustomNavMesh = [];
 
+        private static readonly List<PrimitiveObjectToy> _customPrimitiveToys = [];
+
         public static void Init()
         {
             CustomNavBlocker.Clear();
@@ -392,6 +394,7 @@ namespace UncomplicatedCustomBots.API.Managers
             _navMeshData = null;
             Features.NavigationSystem.ElevatorLinkRegistry.Clear();
             ClearElevatorMeshes();
+            ClearCustomPrimitives();
             UnregisterElevatorEvents();
         }
 
@@ -400,6 +403,60 @@ namespace UncomplicatedCustomBots.API.Managers
             CustomNavMesh.Clear();
             CustomNavBlocker.Clear();
         }
+
+        private static void ClearCustomPrimitives()
+        {
+            for (int i = _customPrimitiveToys.Count - 1; i >= 0; i--)
+            {
+                PrimitiveObjectToy toy = _customPrimitiveToys[i];
+                try
+                {
+                    toy?.Destroy();
+                }
+                catch (Exception ex)
+                {
+                    LogManager.Debug($"NavMesh ClearCustomPrimitives: failed to destroy toy: {ex.Message}");
+                }
+            }
+            _customPrimitiveToys.Clear();
+        }
+
+        private static PrimitiveObjectToy? SpawnCustomPrimitive(Vector3 position, Quaternion rotation, Vector3 scale, string sourceName, bool isBlocker, PrimitiveType type = PrimitiveType.Cube, bool visible = false, Color? color = null)
+        {
+            try
+            {
+                PrimitiveObjectToy toy = PrimitiveObjectToy.Create();
+                toy.Position = position;
+                toy.Rotation = rotation;
+                toy.Scale = scale;
+                toy.Type = type;
+                AdminToys.PrimitiveFlags flags = AdminToys.PrimitiveFlags.Collidable;
+                if (visible)
+                    flags |= AdminToys.PrimitiveFlags.Visible;
+
+                toy.Flags = flags;
+                if (color.HasValue)
+                    toy.Color = color.Value;
+
+                toy.GameObject.name = $"{(isBlocker ? "CustomNavBlocker" : "CustomNavMesh")}_{sourceName}_{_customPrimitiveToys.Count}";
+                toy.GameObject.layer = LayerMask.NameToLayer("Default");
+                toy.Spawn();
+                _customPrimitiveToys.Add(toy);
+                LogManager.Debug($"NavMesh spawned {(isBlocker ? "blocker" : "walkable")} primitive '{toy.GameObject.name}' type {type} at {position} rot {rotation.eulerAngles} scale {scale} visible={visible}");
+                return toy;
+            }
+            catch (Exception ex)
+            {
+                LogManager.Warn($"NavMesh failed to spawn {(isBlocker ? "blocker" : "walkable")} primitive for '{sourceName}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static PrimitiveObjectToy? SpawnCustomBlockerPrimitive(Vector3 position, Quaternion rotation, Vector3 scale, string sourceName, PrimitiveType type = PrimitiveType.Cube, bool visible = false, Color? color = null)
+            => SpawnCustomPrimitive(position, rotation, scale, sourceName, true, type, visible, color);
+
+        private static PrimitiveObjectToy? SpawnCustomWalkablePrimitive(Vector3 position, Quaternion rotation, Vector3 scale, string sourceName, PrimitiveType type = PrimitiveType.Cube, bool visible = false, Color? color = null)
+            => SpawnCustomPrimitive(position, rotation, scale, sourceName, false, type, visible, color);
 
         private static NavMeshBuildSettings GetBuildSettings()
         {
@@ -635,42 +692,109 @@ namespace UncomplicatedCustomBots.API.Managers
 
                 if (!matched)
                 {
-                    foreach (Collider col in UnityEngine.Object.FindObjectsByType<Collider>(FindObjectsSortMode.None))
+                    if (blocker.Position.HasValue && blocker.Scale.HasValue)
                     {
-                        if (col == null || col.isTrigger)
-                            continue;
+                        Vector3 pos = blocker.Position.Value;
+                        Vector3 size = blocker.Scale.Value;
+                        Quaternion rot = blocker.RotationEuler.HasValue ? Quaternion.Euler(blocker.RotationEuler.Value) : Quaternion.identity;
+                        PrimitiveObjectToy? spawned = SpawnCustomBlockerPrimitive(pos, rot, size, blocker.ObjectName, blocker.PrimitiveType, blocker.Visible, blocker.Color);
+                        if (spawned != null)
+                        {
+                            sources.Add(CreateBoxSource(spawned.Position, spawned.Rotation, spawned.Scale));
+                        }
+                        else
+                            sources.Add(CreateBoxSource(pos, rot, size));
 
-                        if (!IsMatch(col.transform, blocker.ObjectName))
-                            continue;
-
-                        Vector3 size = col.bounds.size;
-                        if (size.sqrMagnitude < 0.01f)
-                            continue;
-
-                        Vector3 pos = col.bounds.center;
-                        Quaternion rot = col.transform.rotation;
-                        sources.Add(CreateBoxSource(pos, rot, size));
                         blockerApplied++;
                         matched = true;
-                        break;
+                    }
+                    else
+                    {
+                        bool primitiveMatched = false;
+                        foreach (AdminToys.PrimitiveObjectToy prim in UnityEngine.Object.FindObjectsByType<AdminToys.PrimitiveObjectToy>(FindObjectsSortMode.None))
+                        {
+                            if (prim == null || prim.transform == null)
+                                continue;
+
+                            if (!IsMatch(prim.transform, blocker.ObjectName))
+                                continue;
+
+                            Vector3 size = prim.Scale;
+                            if (size.sqrMagnitude < 0.01f)
+                            {
+                                Collider c = prim.GetComponent<Collider>();
+                                if (c != null)
+                                {
+                                    size = c.bounds.size;
+                                }
+                                else
+                                    size = prim.transform.lossyScale;
+                            }
+
+                            if (size.sqrMagnitude < 0.01f)
+                                continue;
+
+                            Vector3 pos = prim.Position;
+                            Quaternion rot = prim.Rotation;
+                            sources.Add(CreateBoxSource(pos, rot, size));
+                            blockerApplied++;
+                            matched = true;
+                            primitiveMatched = true;
+                            LogManager.Debug($"NavMesh CustomNavBlocker '{blocker.ObjectName}' built from existing PrimitiveObjectToy '{prim.name}' at {pos} scale {size}");
+                            break;
+                        }
+
+                        if (!primitiveMatched)
+                        {
+                            foreach (Collider col in UnityEngine.Object.FindObjectsByType<Collider>(FindObjectsSortMode.None))
+                            {
+                                if (col == null || col.isTrigger)
+                                    continue;
+
+                                if (!IsMatch(col.transform, blocker.ObjectName))
+                                    continue;
+
+                                Vector3 size = col.bounds.size;
+                                if (size.sqrMagnitude < 0.01f)
+                                    continue;
+
+                                Vector3 pos = col.bounds.center;
+                                Quaternion rot = col.transform.rotation;
+                                PrimitiveObjectToy? spawned = SpawnCustomBlockerPrimitive(pos, rot, size, blocker.ObjectName);
+                                if (spawned != null)
+                                {
+                                    sources.Add(CreateBoxSource(spawned.Position, spawned.Rotation, spawned.Scale));
+                                    LogManager.Debug($"NavMesh CustomNavBlocker '{blocker.ObjectName}' spawned blocker primitive '{spawned.GameObject.name}' and added box source from primitive.");
+                                }
+                                else
+                                    sources.Add(CreateBoxSource(pos, rot, size));
+
+                                blockerApplied++;
+                                matched = true;
+                                break;
+                            }
+                        }
                     }
                 }
                 if (!matched)
-                    LogManager.Debug($"NavMesh CustomNavBlocker '{blocker.ObjectName}' matched no collider/source.");
+                    LogManager.Debug($"NavMesh CustomNavBlocker '{blocker.ObjectName}' matched no collider/primitive/source.");
             }
 
             foreach (CustomNavMesh custom in CustomNavMesh)
             {
                 if (string.IsNullOrWhiteSpace(custom.ObjectName))
                     continue;
+                    
                 bool matched = false;
                 for (int i = 0; i < sources.Count; i++)
                 {
                     Component comp = sources[i].component;
                     if (comp == null || comp.transform == null)
                         continue;
+                        
                     if (!IsMatch(comp.transform, custom.ObjectName))
                         continue;
+
                     NavMeshBuildSource s = sources[i];
                     if (s.area != DefaultArea)
                     {
@@ -682,32 +806,96 @@ namespace UncomplicatedCustomBots.API.Managers
                 }
                 if (!matched)
                 {
-                    foreach (Collider col in UnityEngine.Object.FindObjectsByType<Collider>(FindObjectsSortMode.None))
+                    if (custom.Position.HasValue && custom.Scale.HasValue)
                     {
-                        if (col == null || col.isTrigger)
-                            continue;
+                        Vector3 pos = custom.Position.Value;
+                        Vector3 size = custom.Scale.Value;
+                        Quaternion rot = custom.RotationEuler.HasValue ? Quaternion.Euler(custom.RotationEuler.Value) : Quaternion.identity;
+                        PrimitiveObjectToy? spawned = SpawnCustomWalkablePrimitive(pos, rot, size, custom.ObjectName, custom.PrimitiveType, custom.Visible, custom.Color);
+                        if (spawned != null)
+                        {
+                            sources.Add(CreateWalkableBoxSource(spawned.Position, spawned.Rotation, spawned.Scale));
+                        }
+                        else
+                            sources.Add(CreateWalkableBoxSource(pos, rot, size));
 
-                        if (!IsMatch(col.transform, custom.ObjectName))
-                            continue;
-
-                        Vector3 size = col.bounds.size;
-                        if (size.sqrMagnitude < 0.01f)
-                            continue;
-
-                        Vector3 pos = col.bounds.center;
-                        Quaternion rot = col.transform.rotation;
-                        sources.Add(CreateWalkableBoxSource(pos, rot, size));
                         meshApplied++;
                         matched = true;
-                        break;
+                    }
+                    else
+                    {
+                        bool primitiveMatched = false;
+                        foreach (AdminToys.PrimitiveObjectToy prim in UnityEngine.Object.FindObjectsByType<AdminToys.PrimitiveObjectToy>(FindObjectsSortMode.None))
+                        {
+                            if (prim == null || prim.transform == null)
+                                continue;
+
+                            if (!IsMatch(prim.transform, custom.ObjectName))
+                                continue;
+
+                            Vector3 size = prim.Scale;
+                            if (size.sqrMagnitude < 0.01f)
+                            {
+                                Collider c = prim.GetComponent<Collider>();
+                                if (c != null)
+                                {
+                                    size = c.bounds.size;
+                                }
+                                else
+                                    size = prim.transform.lossyScale;
+                            }
+                            
+                            if (size.sqrMagnitude < 0.01f)
+                                continue;
+
+                            Vector3 pos = prim.Position;
+                            Quaternion rot = prim.Rotation;
+                            sources.Add(CreateWalkableBoxSource(pos, rot, size));
+                            meshApplied++;
+                            matched = true;
+                            primitiveMatched = true;
+                            LogManager.Debug($"NavMesh CustomNavMesh '{custom.ObjectName}' built from existing PrimitiveObjectToy '{prim.name}' at {pos} scale {size}");
+                            break;
+                        }
+
+                        if (!primitiveMatched)
+                        {
+                            foreach (Collider col in UnityEngine.Object.FindObjectsByType<Collider>(FindObjectsSortMode.None))
+                            {
+                                if (col == null || col.isTrigger)
+                                    continue;
+
+                                if (!IsMatch(col.transform, custom.ObjectName))
+                                    continue;
+
+                                Vector3 size = col.bounds.size;
+                                if (size.sqrMagnitude < 0.01f)
+                                    continue;
+
+                                Vector3 pos = col.bounds.center;
+                                Quaternion rot = col.transform.rotation;
+                                PrimitiveObjectToy? spawned2 = SpawnCustomWalkablePrimitive(pos, rot, size, custom.ObjectName);
+                                if (spawned2 != null)
+                                {
+                                    sources.Add(CreateWalkableBoxSource(spawned2.Position, spawned2.Rotation, spawned2.Scale));
+                                    LogManager.Debug($"NavMesh CustomNavMesh '{custom.ObjectName}' spawned walkable primitive '{spawned2.GameObject.name}' and added walkable box source from primitive.");
+                                }
+                                else
+                                    sources.Add(CreateWalkableBoxSource(pos, rot, size));
+
+                                meshApplied++;
+                                matched = true;
+                                break;
+                            }
+                        }
                     }
                 }
                 if (!matched)
-                    LogManager.Debug($"NavMesh CustomNavMesh '{custom.ObjectName}' matched no collider/source.");
+                    LogManager.Debug($"NavMesh CustomNavMesh '{custom.ObjectName}' matched no collider/primitive/source.");
             }
 
             if (blockerApplied > 0 || meshApplied > 0)
-                LogManager.Info($"NavMesh custom overrides applied: walkable={meshApplied}, blocked={blockerApplied} (blockers={CustomNavBlocker.Count}, meshes={CustomNavMesh.Count})");
+                LogManager.Info($"NavMesh custom overrides applied: walkable={meshApplied}, blocked={blockerApplied} (blockers={CustomNavBlocker.Count}, meshes={CustomNavMesh.Count}) primitives={_customPrimitiveToys.Count}");
         }
 
         private static void LogUnknownSources(List<NavMeshBuildSource> sources)
@@ -751,7 +939,9 @@ namespace UncomplicatedCustomBots.API.Managers
                     case NavMeshBuildSourceShape.Mesh:
                         Bounds? meshBounds = null;
                         if (source.component is MeshCollider collider && collider.sharedMesh != null)
+                        {
                             meshBounds = collider.sharedMesh.bounds;
+                        }
                         else if (source.sourceObject is Mesh renderMesh)
                             meshBounds = renderMesh.bounds;
 
@@ -865,6 +1055,7 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             if (ev == null || ev.Elevator == null)
                 return;
+
             if (ev.NewSequence == ElevatorChamber.ElevatorSequence.Ready)
             {
                 ElevatorChamber chamber = ev.Elevator.Base;
@@ -915,31 +1106,27 @@ namespace UncomplicatedCustomBots.API.Managers
                 }
                 if (elevSources.Count == 0)
                 {
-                    try
+                    List<NavMeshBuildSource> allSources = [];
+                    NavMeshBuilder.CollectSources(null, layerMask, NavMeshCollectGeometry.PhysicsColliders, DefaultArea, [], allSources);
+                    Bounds eb = chamber.WorldspaceBounds.Bounds;
+                    eb.Expand(1.5f);
+                    foreach (NavMeshBuildSource src in allSources)
                     {
-                        List<NavMeshBuildSource> allSources = [];
-                        NavMeshBuilder.CollectSources(null, layerMask, NavMeshCollectGeometry.PhysicsColliders, DefaultArea, [], allSources);
-                        Bounds eb = chamber.WorldspaceBounds.Bounds;
-                        eb.Expand(1.5f);
-                        foreach (NavMeshBuildSource src in allSources)
-                        {
-                            Vector3 srcPos = src.transform.GetPosition();
-                            if (eb.Contains(srcPos))
-                                elevSources.Add(src);
-                        }
-                        
-                        if (elevSources.Count == 0)
-                        {
-                            foreach (Collider col in chamber.GetComponentsInChildren<Collider>(true))
-                            {
-                                if (col == null)
-                                    continue;
+                        Vector3 srcPos = src.transform.GetPosition();
+                        if (eb.Contains(srcPos))
+                            elevSources.Add(src);
+                    }
 
-                                elevSources.Add(CreateBoxSource(col.bounds.center, col.transform.rotation, col.bounds.size));
-                            }
+                    if (elevSources.Count == 0)
+                    {
+                        foreach (Collider col in chamber.GetComponentsInChildren<Collider>(true))
+                        {
+                            if (col == null)
+                                continue;
+
+                            elevSources.Add(CreateBoxSource(col.bounds.center, col.transform.rotation, col.bounds.size));
                         }
                     }
-                    catch { }
                 }
 
                 if (elevSources.Count == 0)
@@ -1059,7 +1246,7 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             if (_elevatorTrackingRegistered)
             {
-                try { NavMesh.onPreUpdate -= UpdateElevatorMeshes; } catch { }
+                NavMesh.onPreUpdate -= UpdateElevatorMeshes;
                 _elevatorTrackingRegistered = false;
             }
 

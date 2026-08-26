@@ -6,6 +6,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using Steam;
 using UncomplicatedCustomBots.API.Struct;
 using UnityEngine;
 
@@ -21,6 +22,9 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             Stopwatch sw = Stopwatch.StartNew();
             Dictionary<string, List<MeshEntry>> index = new(StringComparer.OrdinalIgnoreCase);
+
+            if (SteamServerInfo.Version != "14.2.7")
+                LogManager.Warn($"The version {SteamServerInfo.Version} dosent match the compiled version (14.2.7). Some meshes may be missing.");
 
             try
             {

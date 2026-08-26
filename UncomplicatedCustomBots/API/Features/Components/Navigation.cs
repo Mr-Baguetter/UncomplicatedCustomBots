@@ -5,7 +5,6 @@ using LabApi.Features.Wrappers;
 using LightContainmentZoneDecontamination;
 using MapGeneration;
 using MEC;
-using Mirror;
 using PlayerRoles;
 using PlayerRoles.FirstPersonControl;
 using RelativePositioning;
@@ -48,7 +47,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
         private const float MaxHeightSnapDistance = 2f;
         private const float WaypointSnapDistance = 1.5f;
         private const float DoorWaypointClearanceDistance = 1.0f;
-        private const float RoomDestinationHeightTolerance = 5f;
         private static readonly float[] DestinationSampleRadii = [1.5f, 4f];
         private static readonly float ClimbableSurfaceNormalY = Mathf.Cos(NavMeshManager.AgentSlope * Mathf.Deg2Rad);
         private static readonly LayerMask ObstacleMask = LayerMask.GetMask("Default", "InvisibleCollider", "Door", "Fence");
@@ -779,6 +777,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 _calcDepth = 0;
                 return;
             }
+
             _calcDepth++;
             try
             {

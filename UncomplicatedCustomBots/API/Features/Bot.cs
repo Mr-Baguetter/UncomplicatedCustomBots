@@ -75,7 +75,7 @@ namespace UncomplicatedCustomBots.API.Features
                 randomName = Plugin.Instance.Config.Names[random.Next(Plugin.Instance.Config.Names.Count)];
             }
 
-            ReferenceHub hub = DummyUtils.SpawnDummy(randomName) ?? throw new System.InvalidOperationException($"Failed to spawn dummy '{randomName}'");
+            ReferenceHub hub = DummyUtils.SpawnDummy(randomName);
             Player = Player.Get(hub) ?? throw new System.InvalidOperationException($"Player.Get returned null for dummy '{randomName}'");
 
             RegisterBot(this);
@@ -83,6 +83,10 @@ namespace UncomplicatedCustomBots.API.Features
             Player.GameObject!.AddComponent<BotComponent>().Initialize(this);
             BotDetectionRadius = Player.GameObject!.AddComponent<BotRadius>();
             BotDetectionRadius?.Init(this);
+            Player.GameObject!.AddComponent<Scp173StareMonitor>().Initialize(this);
+ 
+            Player.InfoArea |= PlayerInfoArea.CustomInfo;
+            Player.CustomInfo = "Bot";
         }
 
         public Bot(ReferenceHub hub)
@@ -97,6 +101,10 @@ namespace UncomplicatedCustomBots.API.Features
             Player.GameObject!.AddComponent<BotComponent>().Initialize(this);
             BotDetectionRadius = Player.GameObject!.AddComponent<BotRadius>();
             BotDetectionRadius?.Init(this);
+            Player.GameObject!.AddComponent<Scp173StareMonitor>().Initialize(this);
+
+            Player.InfoArea |= PlayerInfoArea.CustomInfo;
+            Player.CustomInfo = "Bot";
         }
 
         public void Start()
@@ -170,6 +178,10 @@ namespace UncomplicatedCustomBots.API.Features
             BotRadius? radius = Player?.GameObject?.GetComponent<BotRadius>();
             if (radius != null)
                 UnityEngine.Object.Destroy(radius);
+
+            Scp173StareMonitor? stareMonitor = Player?.GameObject?.GetComponent<Scp173StareMonitor>();
+            if (stareMonitor != null)
+                UnityEngine.Object.Destroy(stareMonitor);
 
             Targeting.RemoveBot(this);
         }

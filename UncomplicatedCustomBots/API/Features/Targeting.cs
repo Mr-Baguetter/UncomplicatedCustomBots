@@ -217,7 +217,7 @@ namespace UncomplicatedCustomBots.API.Features
             return Vector3.Distance(bot.Player.Position, target.Position) <= MaxTargetingRange;
         }
 
-        private static bool IsScp(Player player) => player.Role.GetTeam() == Team.SCPs;
+        private static bool IsScp(Player player) => player.Team == Team.SCPs;
 
         private static bool TryGetCached(Dictionary<Bot, CacheEntry> cache, Bot bot, out Player? target)
         {

@@ -207,7 +207,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             for (int i = 0; i < count; i++)
             {
                 Collider collider = _ragdollOverlapBuffer[i];
-                if (collider.TryGetComponent<BasicRagdoll>(out var ragdoll) && ragdoll.Info.RoleType.GetTeam() != Team.SCPs && ragdoll.Info.RoleType.GetTeam() != Team.Flamingos)
+                if (collider.TryGetComponent<BasicRagdoll>(out var ragdoll) && ragdoll.Info.RoleType.GetTeam() != Team.SCPs)
                 {
                     float distance = Vector3.Distance(Bot.Player.Position, collider.transform.position);
                     if (distance < closestDistance)
