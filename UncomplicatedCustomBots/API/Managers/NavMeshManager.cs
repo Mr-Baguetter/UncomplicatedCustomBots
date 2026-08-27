@@ -41,7 +41,7 @@ namespace UncomplicatedCustomBots.API.Managers
         public const float StartSnapDistance = 5f;
 
         private static readonly string[] ClutterSourceNames = ["Broken Electrical Box Open Connector"];
-        private static readonly string[] BakedLayers = ["Default", "InvisibleCollider", "Fence"];
+        private static readonly string[] BakedLayers = ["Default", "Fence"];
 
         private const float DoorwayGapHalfWidth = 1.0f;
         private const float DoorframeBlockoutWidth = 1.6f;

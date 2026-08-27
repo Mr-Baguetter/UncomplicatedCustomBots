@@ -193,14 +193,11 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (player != null)
             {
                 _bot = player.GetBot();
-                if (_bot != null)
-                {
-                    _bot.SetCachedNavigation(this);
-                }
+                _bot?.SetCachedNavigation(this);
 
-                _squadShareTimer = (player.PlayerId % 5) * 0.12f;
-                _elevatorCheckTimer = (player.PlayerId % 5) * 0.1f;
-                _pathRecalculateTimer = (player.PlayerId % 7) * 0.5f;
+                _squadShareTimer = player.PlayerId % 5 * 0.12f;
+                _elevatorCheckTimer = player.PlayerId % 5 * 0.1f;
+                _pathRecalculateTimer = player.PlayerId % 7 * 0.5f;
             }
 
             EnsureAgent();
