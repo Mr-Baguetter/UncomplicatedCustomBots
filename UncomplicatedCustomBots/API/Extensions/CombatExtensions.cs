@@ -11,7 +11,7 @@ namespace UncomplicatedCustomBots.API.Extensions
 {
     public static class CombatExtensions
     {
-        public static readonly CachedLayerMask CombatHitregMask = new("InvisibleCollider", "Default", "Hitbox", "Glass", "CCTV");
+        public static readonly CachedLayerMask CombatHitregMask = new("InvisibleCollider", "Default", "Hitbox", "Glass", "CCTV", "Door");
         private static readonly LayerMask ObstacleMask = LayerMask.GetMask("Default", "InvisibleCollider", "Door", "Fence");
         private const float BodyRadius = 0.3f;
         private static readonly RaycastHit[] _raycastBuffer = new RaycastHit[16];
@@ -101,19 +101,13 @@ namespace UncomplicatedCustomBots.API.Extensions
             if (t == null)
                 return false;
 
-            DoorVariant door = t.GetComponentInParent<DoorVariant>();
+            DoorVariant? door = t.GetComponentInParent<DoorVariant>();
             if (door != null)
             {
                 if (door.IsConsideredOpen())
                     return true;
 
-                if (door.IsVisibleThrough)
-                    return true;
-
                 if (door.GetExactState() > 0.1f)
-                    return true;
-
-                if (door.CanSeeThrough)
                     return true;
 
                 return false;

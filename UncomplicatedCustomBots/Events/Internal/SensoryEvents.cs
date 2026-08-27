@@ -17,10 +17,10 @@ namespace UncomplicatedCustomBots.Events.Internal
 {
     internal static class SensoryEvents
     {
-        private const float GunshotRange = 40f;
+        private const float GunshotRange = 60f;
         private const float TeslaRange = 25f;
         private const float GrenadeRange = 30f;
-        private const float SpeakingRange = 25f;
+        private const float SpeakingRange = 35f;
         private const float RadioRange = 15f;
         private const float SpeakingThrottleSeconds = 1.0f;
 

@@ -442,14 +442,8 @@ namespace UncomplicatedCustomBots.API.Managers
         {
             foreach (Mesh m in _navBlockerMeshes)
             {
-                try
-                {
-                    if (m != null)
-                        UnityEngine.Object.Destroy(m);
-                }
-                catch
-                {
-                }
+                if (m != null)
+                    UnityEngine.Object.Destroy(m);
             }
 
             _navBlockerMeshes.Clear();
@@ -460,15 +454,9 @@ namespace UncomplicatedCustomBots.API.Managers
             for (int i = _customPrimitiveToys.Count - 1; i >= 0; i--)
             {
                 PrimitiveObjectToy toy = _customPrimitiveToys[i];
-                try
-                {
-                    toy?.Destroy();
-                }
-                catch (Exception ex)
-                {
-                    LogManager.Debug($"NavMesh ClearCustomPrimitives: failed to destroy toy: {ex.Message}");
-                }
+                toy?.Destroy();
             }
+            
             _customPrimitiveToys.Clear();
         }
 
@@ -1550,6 +1538,7 @@ namespace UncomplicatedCustomBots.API.Managers
                     LogManager.Debug($"BuildElevatorMeshes CollectSources failed for {chamber.AssignedGroup}: {ex.Message}");
                     continue;
                 }
+
                 if (elevSources.Count == 0)
                 {
                     List<NavMeshBuildSource> allSources = [];

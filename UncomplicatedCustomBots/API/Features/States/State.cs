@@ -17,6 +17,6 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public abstract void Update();
 
-        public abstract void Exit();
+        public virtual void Exit() { }
     }
 }

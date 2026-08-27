@@ -22,28 +22,17 @@ namespace UncomplicatedCustomBots.API.Features
         private static readonly object _botListLock = new();
         public BotRadius? BotDetectionRadius { get; set; }
 
-        private Navigation? _cachedNavigation;
         public Navigation? CachedNavigation
         {
             get
             {
-                if (_cachedNavigation == null)
-                {
-                    _cachedNavigation = Player.GameObject?.GetComponent<Navigation>();
-                }
+                if (field == null)
+                    field = Player.GameObject?.GetComponent<Navigation>();
 
-                return _cachedNavigation;
+                return field;
             }
-        }
 
-        internal void SetCachedNavigation(Navigation nav)
-        {
-            _cachedNavigation = nav;
-        }
-
-        internal void InvalidateNavigationCache()
-        {
-            _cachedNavigation = null;
+            set;
         }
 
         private static void RegisterBot(Bot bot)
@@ -199,7 +188,7 @@ namespace UncomplicatedCustomBots.API.Features
             if (navigation != null)
                 Object.Destroy(navigation);
 
-            _cachedNavigation = null;
+            CachedNavigation = null;
 
             NavMeshAgent? agent = Player?.GameObject?.GetComponent<NavMeshAgent>();
             if (agent != null)

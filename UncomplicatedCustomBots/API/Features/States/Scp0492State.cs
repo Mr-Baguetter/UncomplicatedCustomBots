@@ -121,10 +121,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         public override void Exit()
         {
             Navigation? nav = Bot.CachedNavigation;
-            if (nav != null)
-            {
-                nav.enabled = true;
-            }
+            nav?.enabled = true;
             
             if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
             {

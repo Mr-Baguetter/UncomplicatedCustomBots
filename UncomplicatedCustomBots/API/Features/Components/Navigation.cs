@@ -193,7 +193,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (player != null)
             {
                 _bot = player.GetBot();
-                _bot?.SetCachedNavigation(this);
+                _bot?.CachedNavigation = this;
 
                 _squadShareTimer = player.PlayerId % 5 * 0.12f;
                 _elevatorCheckTimer = player.PlayerId % 5 * 0.1f;
@@ -1311,70 +1311,6 @@ namespace UncomplicatedCustomBots.API.Features.Components
         }
 
         private Vector3 GetRoomDestination(Room room) => _roomQuery.GetRoomDestination(room, transform.position);
-
-        private static Vector3? SampleWalkableDestination(Vector3 probe, float maxAcceptableY)
-        {
-            int mask = NavMeshManager.WalkableAreaMask;
-            foreach (float radius in DestinationSampleRadii)
-            {
-                if (!NavMesh.SamplePosition(probe, out NavMeshHit hit, radius, mask))
-                    continue;
-
-                if (hit.position.y > maxAcceptableY)
-                    continue;
-
-                return hit.position;
-            }
-
-            return null;
-        }
-
-        private static readonly Dictionary<Room, Bounds> _roomBoundsCache = [];
-        private static readonly Dictionary<Room, int> _roomBoundsFrame = [];
-
-        private static Bounds GetRoomColliderBounds(Room room)
-        {
-            if (room.GameObject == null)
-                return default;
-
-            int frame = Time.frameCount;
-            if (_roomBoundsCache.TryGetValue(room, out Bounds cached) && _roomBoundsFrame.TryGetValue(room, out int f) && frame - f < 300)
-                return cached;
-
-            Bounds bounds = default;
-            bool found = false;
-            foreach (Collider collider in room.GameObject.GetComponentsInChildren<Collider>(true))
-            {
-                if (collider == null || collider.isTrigger || collider is CharacterController)
-                    continue;
-                    
-                if (!found)
-                {
-                    bounds = collider.bounds;
-                    found = true;
-                }
-                else
-                    bounds.Encapsulate(collider.bounds);
-            }
-
-            Bounds ws = room.Base.WorldspaceBounds;
-            ws.Expand(-0.8f);
-            if (found && ws.Intersects(bounds))
-            {
-                Vector3 mn = Vector3.Max(bounds.min, ws.min);
-                Vector3 mx = Vector3.Min(bounds.max, ws.max);
-                if (mn.x <= mx.x && mn.y <= mx.y && mn.z <= mx.z)
-                    bounds.SetMinMax(mn, mx);
-            }
-            else if (!found)
-            {
-                bounds = ws;
-            }
-
-            _roomBoundsCache[room] = bounds;
-            _roomBoundsFrame[room] = frame;
-            return bounds;
-        }
 
         private int GetNavMeshAreaMask() => NavMeshManager.WalkableAreaMask;
 

@@ -2,7 +2,6 @@ using System.Collections.Generic;
 using LabApi.Features.Wrappers;
 using PlayerRoles;
 using PlayerRoles.PlayableScps.Scp173;
-using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features.States;
 using UncomplicatedCustomBots.API.Managers;
 using UnityEngine;

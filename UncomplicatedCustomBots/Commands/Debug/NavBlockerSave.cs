@@ -1,6 +1,4 @@
 using CommandSystem;
-using LabApi.Features.Wrappers;
-using LabApi.Loader;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -75,7 +73,8 @@ namespace UncomplicatedCustomBots.Commands.Debug
                 }
 
                 int points = NavMeshManager.SessionNavBlockers.Sum(b => b.LocalPos.Count);
-                response = $"Saved {NavMeshManager.SessionNavBlockers.Count} NavBlocker(s) ({points} points) to '{fullPath}'.{rebuildMsg} Loaded external count={NavMeshManager.ExternalNavBlockers.Count}. Use 'navblockcreate' to continue, rebuild will apply on next round or via --rebuild.";
+                response = $"Saved {NavMeshManager.SessionNavBlockers.Count} NavBlocker(s) ({points} points) to '{fullPath}'.{rebuildMsg} Loaded external count={NavMeshManager.ExternalNavBlockers.Count}.";
+                NavMeshManager.SessionNavBlockers.Clear();
                 return true;
             }
             catch (Exception ex)

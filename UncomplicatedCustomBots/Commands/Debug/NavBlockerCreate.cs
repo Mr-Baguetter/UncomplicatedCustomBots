@@ -3,7 +3,6 @@ using LabApi.Features.Wrappers;
 using MapGeneration;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UncomplicatedCustomBots.API.Interfaces;
 using UncomplicatedCustomBots.API.Managers;
 using UncomplicatedCustomBots.API.YamlObjects;
@@ -104,11 +103,10 @@ namespace UncomplicatedCustomBots.Commands.Debug
             }
 
             blocker.LocalPos.Add(localPos);
-
-            PrimitiveObjectToy? marker = null;
             try
             {
-                marker = PrimitiveObjectToy.Create();
+                PrimitiveObjectToy? marker = PrimitiveObjectToy.Create();
+
                 marker.Position = worldPos + Vector3.up * 0.1f;
                 marker.Scale = Vector3.one * 0.3f;
                 marker.Type = PrimitiveType.Cube;

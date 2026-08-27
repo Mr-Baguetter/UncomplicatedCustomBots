@@ -243,10 +243,7 @@ namespace UncomplicatedCustomBots.API.Features.States
         public override void Exit()
         {
             Navigation? nav = Bot.CachedNavigation;
-            if (nav != null)
-            {
-                nav.enabled = true;
-            }
+            nav?.enabled = true;
         }
     }
 }

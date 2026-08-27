@@ -45,7 +45,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (cached == null)
             {
                 cached = bot.Player.GameObject!.AddComponent<Navigation>();
-                bot.SetCachedNavigation(cached);
+                bot.CachedNavigation = cached;
             }
             else
             {
