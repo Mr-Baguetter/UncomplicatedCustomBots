@@ -60,7 +60,14 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             Target ??= Bot.Context.Target ?? null!;
 
-            _navigator = Bot.Player.GameObject!.GetComponent<Navigation>() ?? Bot.Player.GameObject!.AddComponent<Navigation>();
+            Navigation? cached = Bot.CachedNavigation;
+            if (cached == null)
+            {
+                cached = Bot.Player.GameObject!.AddComponent<Navigation>();
+                Bot.SetCachedNavigation(cached);
+            }
+
+            _navigator = cached;
             _navigator.enabled = true;
 
             if (Bot.Player.RoleBase is IFpcRole fpc)
@@ -68,30 +75,22 @@ namespace UncomplicatedCustomBots.API.Features.States
                 float chaseSpeed = CombatSpeed;
 
                 if (fpc.FpcModule.SprintSpeed > chaseSpeed)
-                {
                     chaseSpeed = fpc.FpcModule.SprintSpeed;
-                }
                     
                 chaseSpeed = Mathf.Clamp(chaseSpeed, 6f, 10f);
 
                 if (chaseSpeed < fpc.FpcModule.WalkSpeed * 1.6f)
-                {
                     chaseSpeed = fpc.FpcModule.WalkSpeed * 1.6f;
-                }
                     
                 _navigator.Init(speed: chaseSpeed, enablePatrol: false);
             }
             else
-            {
                 _navigator.Init(speed: CombatSpeed, enablePatrol: false);
-            }
 
             _navigator.StopNavigation();
 
-            if (Bot.Player.GameObject.TryGetComponent<PlayerFollower>(out _follower) && _follower.enabled)
-            {
+            if (Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out _follower) && _follower.enabled)
                 _follower.enabled = false;
-            }
 
             _stateChangeTimer = 0f;
             _noTargetSightTimer = 0f;
@@ -205,14 +204,13 @@ namespace UncomplicatedCustomBots.API.Features.States
             Vector3 targetPosition = Target.Position;
             Vector3 botPosition = Bot.Player.Position;
             Vector3 direction = (targetPosition - botPosition).normalized;
-            direction.Normalize();
-            float distance = Vector3.Distance(botPosition, targetPosition);
+            float sq = (botPosition - targetPosition).sqrMagnitude;
 
-            if (distance > OptimalDistance)
+            if (sq > OptimalDistance * OptimalDistance)
             {
                 HandleChaseMovement(targetPosition);
             }
-            else if (distance < TooCloseDistance)
+            else if (sq < TooCloseDistance * TooCloseDistance)
             {
                 StopChaseMovement();
 
@@ -257,10 +255,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Vector3 projected = _navigator.ProjectToNavMesh(targetPosition);
                 if (!_navigator.NavigateToWorldPosition(projected))
                 {
-                    LogManager.Debug($"{Bot.Player.Nickname} failed to build a navmesh chase path to {targetPosition}, moving directly.");
+                    if (Plugin.Instance.Config.Debug)
+                    {
+                        LogManager.Debug($"{Bot.Player.Nickname} failed to build a navmesh chase path to {targetPosition}, moving directly.");
+                    }
                 }
-                else
-                    LogManager.Debug($"{Bot.Player.Nickname} rebuilt chase path to {projected}");
 
                 _combatPathTimer = CombatPathRecalcInterval;
             }
@@ -282,18 +281,14 @@ namespace UncomplicatedCustomBots.API.Features.States
         private void HandleCombatShooting()
         {
             if (Target == null || !Bot.HasLineOfSightWithDoors(Target) || Bot.Player.HasEffect<Flashed>())
-            {
                 return;
-            }
 
-            float distance = Vector3.Distance(Bot.Player.Position, Target.Position);
+            float sq = (Bot.Player.Position - Target.Position).sqrMagnitude;
 
             if (Bot.Player.CurrentItem is FirearmItem currentFirearm)
             {
-                if (distance > EffectiveRange)
-                {
+                if (sq > EffectiveRange * EffectiveRange)
                     return;
-                }
 
                 if (_burstCooldownTimer > 0f)
                 {
@@ -320,15 +315,11 @@ namespace UncomplicatedCustomBots.API.Features.States
             }
             else if (Bot.Player.CurrentItem is ThrowableItem throwableItem)
             {
-                if (distance > ThrowRange)
-                {
+                if (sq > ThrowRange * ThrowRange)
                     return;
-                }
 
                 if (_isThrowingGrenade)
-                {
                     return;
-                }
 
                 TryBeginThrowableThrow(throwableItem);
             }

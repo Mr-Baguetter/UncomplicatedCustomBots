@@ -4,6 +4,7 @@ using PlayerRoles.FirstPersonControl;
 using PlayerRoles.PlayableScps.Scp173;
 using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Features.Components;
+using UncomplicatedCustomBots.API.Managers;
 using UnityEngine;
 
 namespace UncomplicatedCustomBots.API.Features.States
@@ -15,7 +16,6 @@ namespace UncomplicatedCustomBots.API.Features.States
         private float _targetCheckTimer = 0f;
         private const float TARGET_CHECK_INTERVAL = 0.3f;
         private readonly float _optimalDistance = 1.5f;
-        private readonly float _tooCloseDistance = 0.8f;
         private readonly float _combatSpeed = 10f;
         private bool _hasValidTarget = false;
         private float _stateStabilityTimer = 0f;
@@ -30,10 +30,12 @@ namespace UncomplicatedCustomBots.API.Features.States
         private const float TELEPORT_COOLDOWN_TIME = 2f;
         private float _observedCheckTimer = 0f;
         private const float OBSERVED_CHECK_INTERVAL = 0.1f;
-        private const float SNAP_RANGE = 3f;
         private static readonly Collider[] _overlapBuffer = new Collider[16];
         private static readonly int _playersLayer = LayerMask.NameToLayer("Players");
         private static readonly int _ragdollLayer = LayerMask.NameToLayer("Ragdoll");
+        private Navigation _navigator = null!;
+        private float _combatPathTimer = 0f;
+        private const float CombatPathRecalcInterval = 0.5f;
 
         public Scp173State(Bot bot) : base(bot)
         {
@@ -45,19 +47,53 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
-            {   
-                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator & !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
-                {
-                    nav.StopNavigation();
-                    nav.enabled = false;
-                }
+            Navigation? cached = Bot.CachedNavigation;
+            if (cached == null)
+            {
+                cached = Bot.Player.GameObject!.AddComponent<Navigation>();
+                Bot.SetCachedNavigation(cached);
             }
+
+            _navigator = cached;
+
+            if (_navigator.IsInsideElevatorChamber || _navigator.IsWalkingIntoElevator || _navigator.IsWaitingForElevator || _navigator.IsWaitingToEnterElevator)
+            {
+                _hasValidTarget = false;
+                _stateStabilityTimer = 0f;
+                _targetLostTimer = 0f;
+                _teleportCooldown = 0f;
+                _combatPathTimer = 0f;
+                return;
+            }
+
+            _navigator.enabled = true;
+
+            if (Bot.Player.RoleBase is IFpcRole fpc)
+            {
+                float chaseSpeed = _combatSpeed;
+
+                if (fpc.FpcModule.SprintSpeed > chaseSpeed)
+                    chaseSpeed = fpc.FpcModule.SprintSpeed;
+
+                chaseSpeed = Mathf.Clamp(chaseSpeed, 6f, 10f);
+
+                if (chaseSpeed < fpc.FpcModule.WalkSpeed * 1.6f)
+                    chaseSpeed = fpc.FpcModule.WalkSpeed * 1.6f;
+
+                _navigator.Init(speed: chaseSpeed, enablePatrol: false);
+            }
+            else
+            {
+                _navigator.Init(speed: _combatSpeed, enablePatrol: false);
+            }
+
+            _navigator.StopNavigation();
 
             _hasValidTarget = false;
             _stateStabilityTimer = 0f;
             _targetLostTimer = 0f;
             _teleportCooldown = 0f;
+            _combatPathTimer = 0f;
         }
 
         public override void Update()
@@ -65,7 +101,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             _stateStabilityTimer += Time.deltaTime;
             _teleportCooldown -= Time.deltaTime;
 
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var elevatorNav) && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            Navigation? elevatorNav = Bot.CachedNavigation;
+            if (elevatorNav != null && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
                 return;
 
             _targetCheckTimer += Time.deltaTime;
@@ -120,14 +157,16 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void HandleObservedTeleport()
         {
-            if (_target != null && observersTracker != null && observersTracker.IsObserved &&
-                _teleportCooldown <= 0f && teleportAbility != null)
+            if (_target != null && observersTracker != null && observersTracker.IsObserved && _teleportCooldown <= 0f && teleportAbility != null)
             {
-                Vector3 teleportPosition = CalculateOptimalTeleportPosition();
+                if (_navigator != null && _navigator.IsNavigating)
+                    _navigator.StopNavigation();
 
+                _combatPathTimer = 0f;
+
+                Vector3 teleportPosition = CalculateOptimalTeleportPosition();
                 Vector3 lookDirection = (teleportPosition - Bot.Player.Position).normalized;
                 scp173.FpcModule.MouseLook.LookAtDirection(lookDirection);
-
                 BotExtensions.TryRunRoleAction(teleportAbility, ActionName.Zoom, true);
                 _teleportCooldown = TELEPORT_COOLDOWN_TIME;
             }
@@ -140,9 +179,9 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             Vector3 targetPosition = _target.Position;
             Vector3 botPosition = Bot.Player.Position;
-            float distanceToTarget = Vector3.Distance(botPosition, targetPosition);
+            float sq = (botPosition - targetPosition).sqrMagnitude;
 
-            if (distanceToTarget <= 10f)
+            if (sq <= 100f)
             {
                 Vector3 targetForward = _target.ReferenceHub.transform.forward;
                 Vector3 behindTarget = targetPosition - targetForward * 1.5f;
@@ -156,6 +195,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
                 if (IsValidTeleportPosition(rightSide))
                     return rightSide;
+
                 if (IsValidTeleportPosition(leftSide))
                     return leftSide;
 
@@ -163,6 +203,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                     return targetPosition;
             }
 
+            float distanceToTarget = Mathf.Sqrt(sq);
             Vector3 directionToTarget = (targetPosition - botPosition).normalized;
             float teleportDistance = Mathf.Min(distanceToTarget - 2f, 15f);
             Vector3 closerPosition = botPosition + directionToTarget * teleportDistance;
@@ -184,7 +225,8 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Collider collider = _overlapBuffer[i];
                 if (collider.gameObject.layer == _playersLayer || collider.gameObject.layer == _ragdollLayer)
                     continue;
-                if (collider.isTrigger == false)
+
+                if (!collider.isTrigger)
                     return false;
             }
 
@@ -196,15 +238,22 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target == null)
                 return;
 
-            float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-
             Vector3 lookDirection = (_target.Position - Bot.Player.Position).normalized;
             scp173.FpcModule.MouseLook.LookAtDirection(lookDirection);
 
             if (observersTracker == null || !observersTracker.IsObserved)
+            {
                 HandleCombatMovement();
+            }
+            else
+            {
+                if (_navigator != null && _navigator.IsNavigating)
+                    _navigator.StopNavigation();
 
-            if (distanceToTarget <= SNAP_RANGE && CanSnap())
+                _combatPathTimer = 0f;
+            }
+
+            if ((Bot.Player.Position - _target.Position).sqrMagnitude <= 9f && CanSnap())
                 HandleCombat();
         }
 
@@ -222,9 +271,67 @@ namespace UncomplicatedCustomBots.API.Features.States
         private void HandleCombatMovement()
         {
             if (observersTracker != null && observersTracker.IsObserved)
+            {
+                _combatPathTimer = 0f;
+
+                if (_navigator != null && _navigator.IsNavigating)
+                    _navigator.StopNavigation();
+
+                return;
+            }
+
+            if (_target == null || _navigator == null)
                 return;
 
-            Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
+            if (_navigator.IsInsideElevatorChamber || _navigator.IsWalkingIntoElevator || _navigator.IsWaitingForElevator || _navigator.IsWaitingToEnterElevator)
+                return;
+
+            Vector3 targetPosition = _target.Position;
+            Vector3 botPosition = Bot.Player.Position;
+            float sq = (botPosition - targetPosition).sqrMagnitude;
+
+            if (sq <= _optimalDistance * _optimalDistance)
+            {
+                StopChaseMovement();
+                return;
+            }
+
+            HandleChaseMovement(targetPosition);
+        }
+
+        private void HandleChaseMovement(Vector3 targetPosition)
+        {
+            if (_navigator == null)
+                return;
+
+            _combatPathTimer -= Time.deltaTime;
+            if (_combatPathTimer <= 0f)
+            {
+                Vector3 projected = _navigator.ProjectToNavMesh(targetPosition);
+
+                if (!_navigator.NavigateToWorldPosition(projected))
+                {
+                    if (Plugin.Instance.Config.Debug)
+                    {
+                        LogManager.Debug($"{Bot.Player.Nickname} failed to build navmesh chase path to {targetPosition}, moving directly.");
+                    }
+                }
+
+                _combatPathTimer = CombatPathRecalcInterval;
+            }
+
+            if (_navigator.IsNavigating)
+                return;
+
+            _navigator.MoveTowards(_navigator.ProjectToNavMesh(targetPosition), _combatSpeed, lookAtTarget: false);
+        }
+
+        private void StopChaseMovement()
+        {
+            _combatPathTimer = 0f;
+
+            if (_navigator != null && _navigator.IsNavigating)
+                _navigator.StopNavigation();
         }
 
         private void HandleCombat()
@@ -242,8 +349,10 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
-                nav.enabled = true;
+            _combatPathTimer = 0f;
+
+            Navigation? nav = _navigator ?? Bot.CachedNavigation;
+            nav?.enabled = true;
         }
     }
 }

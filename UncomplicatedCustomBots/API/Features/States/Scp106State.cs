@@ -33,9 +33,10 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
             {
-                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator & !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
+                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator && !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
                 {
                     nav.StopNavigation();
                     nav.enabled = false;
@@ -51,8 +52,11 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             _stateStabilityTimer += Time.deltaTime;
 
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var elevatorNav) && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            Navigation? elevatorNav = Bot.CachedNavigation;
+            if (elevatorNav != null && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            {
                 return;
+            }
 
             _targetCheckTimer += Time.deltaTime;
             if (_targetCheckTimer >= TARGET_CHECK_INTERVAL)
@@ -102,10 +106,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target == null) 
                 return;
 
-            float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-
             Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
-            if (distanceToTarget <= 2.8f && Bot.HasLineOfSight(_target, PlayerRolesUtils.LineOfSightMask) && !Bot.Player.HasEffect<Flashed>())
+            if ((Bot.Player.Position - _target.Position).sqrMagnitude <= 7.84f && Bot.HasLineOfSight(_target, PlayerRolesUtils.LineOfSightMask) && !Bot.Player.HasEffect<Flashed>())
                 HandleCombat();
         }
 
@@ -124,8 +126,11 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
+            {
                 nav.enabled = true;
+            }
         }
     }
 }

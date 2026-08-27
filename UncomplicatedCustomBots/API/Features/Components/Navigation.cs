@@ -10,7 +10,6 @@ using PlayerRoles.FirstPersonControl;
 using RelativePositioning;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using UncomplicatedCustomBots.API.Extensions;
 using UncomplicatedCustomBots.API.Managers;
 using UnityEngine;
@@ -51,13 +50,27 @@ namespace UncomplicatedCustomBots.API.Features.Components
         private static readonly float ClimbableSurfaceNormalY = Mathf.Cos(NavMeshManager.AgentSlope * Mathf.Deg2Rad);
         private static readonly LayerMask ObstacleMask = LayerMask.GetMask("Default", "InvisibleCollider", "Door", "Fence");
         private static readonly int AnySolidMask = ~0;
-        private static readonly RaycastHit[] _raycastBuffer = new RaycastHit[16];
-        private static readonly Collider[] _overlapBuffer = new Collider[32];
+        private readonly RaycastHit[] _raycastBuffer = new RaycastHit[16];
+        private readonly Collider[] _overlapBuffer = new Collider[32];
         private static readonly IComparer<RaycastHit> _hitDistanceComparer = new HitDistanceComparer();
 
         private sealed class HitDistanceComparer : IComparer<RaycastHit>
         {
             public int Compare(RaycastHit a, RaycastHit b) => a.distance.CompareTo(b.distance);
+        }
+
+        private static bool IsPlayerCollider(Collider collider)
+        {
+            if (collider == null)
+                return false;
+
+            if (collider.GetComponentInParent<ReferenceHub>() != null)
+                return true;
+
+            if (collider.GetComponentInParent<HitboxIdentity>() != null)
+                return true;
+
+            return false;
         }
         #endregion
 
@@ -121,6 +134,17 @@ namespace UncomplicatedCustomBots.API.Features.Components
         private const float SquadShareInterval = 0.6f;
         private const float SquadShareMaxAdoptDistance = 8f;
         private const float SquadShareMaxLeaderDistance = 25f;
+        private const float SquadShareMaxAdoptDistanceSq = SquadShareMaxAdoptDistance * SquadShareMaxAdoptDistance;
+        private const float SquadShareMaxLeaderDistanceSq = SquadShareMaxLeaderDistance * SquadShareMaxLeaderDistance;
+        private const float DoorCenterPassDistanceSq = DoorCenterPassDistance * DoorCenterPassDistance;
+        private const float WaypointReachedDistanceSq = WaypointReachedDistance * WaypointReachedDistance;
+        private const float DoorInteractionDistanceSq = DoorInteractionDistance * DoorInteractionDistance;
+        private readonly List<Vector3> _subdivideScratch = [];
+        private readonly HashSet<DoorVariant> _insertDoorProcessedScratch = [];
+        private readonly List<(int index, Vector3 doorPos, Vector3 pastPos, bool insertPast)> _insertDoorInsertionsScratch = [];
+        private DoorVariant? _cachedDoorOnPath = null!;
+        private int _cachedDoorWaypointIndex = -1;
+        private Vector3 _cachedDoorWaypointPos = Vector3.zero;
         #endregion
 
         private static readonly List<FacilityZone> DeconZones =
@@ -152,8 +176,10 @@ namespace UncomplicatedCustomBots.API.Features.Components
             }
 
             _fpcRole = _hub.roleManager.CurrentRole as IFpcRole;
-            if (_fpcRole == null)
+            if (_fpcRole == null && Plugin.Instance.Config.Debug)
+            {
                 LogManager.Debug($"Navigation.Init: bot {(_hub.nicknameSync != null ? _hub.nicknameSync.Network_myNickSync : "unknown")} is not FPC role ({_hub.roleManager.CurrentRole?.RoleTypeId}), movement will be disabled");
+            }
 
             _speed = speed;
             _enablePatrolMode = enablePatrol;
@@ -165,7 +191,17 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             player = Player.Get(_hub);
             if (player != null)
+            {
                 _bot = player.GetBot();
+                if (_bot != null)
+                {
+                    _bot.SetCachedNavigation(this);
+                }
+
+                _squadShareTimer = (player.PlayerId % 5) * 0.12f;
+                _elevatorCheckTimer = (player.PlayerId % 5) * 0.1f;
+                _pathRecalculateTimer = (player.PlayerId % 7) * 0.5f;
+            }
 
             EnsureAgent();
         }
@@ -216,8 +252,28 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _agent.updateRotation = false;
             _agent.autoTraverseOffMeshLink = false;
             _agent.autoBraking = false;
-            string q = Plugin.Instance.Config.NavMeshAvoidanceQuality ?? "Medium";
-            _agent.obstacleAvoidanceType = q.Equals("High", StringComparison.OrdinalIgnoreCase) ? ObstacleAvoidanceType.HighQualityObstacleAvoidance : q.Equals("Low", StringComparison.OrdinalIgnoreCase) ? ObstacleAvoidanceType.LowQualityObstacleAvoidance : ObstacleAvoidanceType.MedQualityObstacleAvoidance;
+            string q = Plugin.Instance.Config.NavMeshAvoidanceQuality ?? "None";
+            if (q.Equals("None", StringComparison.OrdinalIgnoreCase) || q.Equals("No", StringComparison.OrdinalIgnoreCase) || q.Equals("Disabled", StringComparison.OrdinalIgnoreCase) || q.Equals("Off", StringComparison.OrdinalIgnoreCase))
+            {
+                _agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
+            }
+            else if (q.Equals("High", StringComparison.OrdinalIgnoreCase))
+            {
+                _agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+            }
+            else if (q.Equals("Low", StringComparison.OrdinalIgnoreCase))
+            {
+                _agent.obstacleAvoidanceType = ObstacleAvoidanceType.LowQualityObstacleAvoidance;
+            }
+            else if (q.Equals("Medium", StringComparison.OrdinalIgnoreCase))
+            {
+                _agent.obstacleAvoidanceType = ObstacleAvoidanceType.MedQualityObstacleAvoidance;
+            }
+            else
+            {
+                _agent.obstacleAvoidanceType = ObstacleAvoidanceType.NoObstacleAvoidance;
+            }
+
             _agent.avoidancePriority = 50 + (player != null ? player.PlayerId % 50 : 0);
             bool wantEnabled = _fpcRole != null;
             if (wantEnabled)
@@ -285,8 +341,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 2f, GetNavMeshAreaMask()))
                 _agentHelper.transform.position = hit.position;
 
-            float drift = Vector3.Distance(_agent.nextPosition, transform.position);
-            if (drift > 2.5f)
+            if ((_agent.nextPosition - transform.position).sqrMagnitude > 6.25f)
                 _agent.Warp(_agentHelper.transform.position);
         }
 
@@ -406,31 +461,38 @@ namespace UncomplicatedCustomBots.API.Features.Components
             return result.Count > 0;
         }
 
-        private static void SubdivideLongSegments(List<Vector3> waypoints)
+        private void SubdivideLongSegments(List<Vector3> waypoints)
         {
             float rawMax = Plugin.Instance.Config.MaxWaypointDistance;
             float maxSegmentLength = rawMax <= 0f ? 2.5f : Mathf.Min(rawMax, 2.5f);
             if (maxSegmentLength <= 0f || waypoints.Count < 2)
                 return;
 
-            List<Vector3> expanded = new(waypoints.Count * 2);
+            float maxSq = maxSegmentLength * maxSegmentLength;
+            _subdivideScratch.Clear();
+            if (_subdivideScratch.Capacity < waypoints.Count * 2)
+            {
+                _subdivideScratch.Capacity = waypoints.Count * 2;
+            }
+
             for (int i = 0; i < waypoints.Count - 1; i++)
             {
                 Vector3 from = waypoints[i];
                 Vector3 to = waypoints[i + 1];
-                expanded.Add(from);
-                float segmentLength = Vector3.Distance(from, to);
-                if (segmentLength > maxSegmentLength)
+                _subdivideScratch.Add(from);
+                float sq = (to - from).sqrMagnitude;
+                if (sq > maxSq)
                 {
+                    float segmentLength = Mathf.Sqrt(sq);
                     int splits = Mathf.CeilToInt(segmentLength / maxSegmentLength);
                     for (int s = 1; s < splits; s++)
-                        expanded.Add(Vector3.Lerp(from, to, (float)s / splits));
+                        _subdivideScratch.Add(Vector3.Lerp(from, to, (float)s / splits));
                 }
             }
 
-            expanded.Add(waypoints[waypoints.Count - 1]);
+            _subdivideScratch.Add(waypoints[waypoints.Count - 1]);
             waypoints.Clear();
-            waypoints.AddRange(expanded);
+            waypoints.AddRange(_subdivideScratch);
         }
 
         private static bool TrySnapToNavMesh(Vector3 position, out Vector3 snapped)
@@ -461,7 +523,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     continue;
                 }
 
-                LogManager.Debug($"Dropped waypoint at {waypoints[i]} - no walkable navmesh within {WaypointSnapDistance}m.");
+                LogManager.Debug($"Dropped waypoint at {waypoints[i]} no walkable navmesh within {WaypointSnapDistance}m.");
                 waypoints.RemoveAt(i);
             }
         }
@@ -482,6 +544,8 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _targetElevatorLevel = -1;
             _elevatorRideOffset = Vector3.zero;
             _currentWaypointIndex = 0;
+            _cachedDoorOnPath = null;
+            _cachedDoorWaypointIndex = -1;
         }
 
         #region Squad Waypoint Sharing
@@ -600,7 +664,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (leader == null || leader == _bot)
                 return false;
 
-            Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+            Navigation? leaderNav = leader.CachedNavigation;
             if (leaderNav == null || leaderNav == this)
                 return false;
 
@@ -613,8 +677,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (_insideElevator || _walkingIntoElevator || _waitingForElevator || _waitingToEnterElevator)
                 return false;
 
-            float leaderDist = Vector3.Distance(transform.position, leader.Player.Position);
-            if (leaderDist > SquadShareMaxLeaderDistance)
+            if ((transform.position - leader.Player.Position).sqrMagnitude > SquadShareMaxLeaderDistanceSq)
                 return false;
 
             if (_currentTargetRoom != null && _currentTargetRoom != leaderNav._currentTargetRoom && _isNavigating)
@@ -636,18 +699,18 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 leaderIdx = source.Count - 1;
 
             int nearestIdx = leaderIdx;
-            float bestDist = float.MaxValue;
+            float bestDistSq = float.MaxValue;
             for (int i = leaderIdx; i < source.Count; i++)
             {
-                float d = Vector3.Distance(transform.position, source[i]);
-                if (d < bestDist)
+                float d = (transform.position - source[i]).sqrMagnitude;
+                if (d < bestDistSq)
                 {
-                    bestDist = d;
+                    bestDistSq = d;
                     nearestIdx = i;
                 }
             }
 
-            if (bestDist > SquadShareMaxAdoptDistance)
+            if (bestDistSq > SquadShareMaxAdoptDistanceSq)
                 return false;
 
             if (_isNavigating && _waypoints.Count > 0 && _currentTargetRoom == leaderNav._currentTargetRoom)
@@ -656,7 +719,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 {
                     Vector3 myTail = _waypoints[_waypoints.Count - 1];
                     Vector3 leaderTail = source[source.Count - 1];
-                    if (Vector3.Distance(myTail, leaderTail) < 1.2f && Mathf.Abs(_waypoints.Count - (source.Count - nearestIdx)) <= 2)
+                    if ((myTail - leaderTail).sqrMagnitude < 1.44f && Mathf.Abs(_waypoints.Count - (source.Count - nearestIdx)) <= 2)
                         return false;
                 }
             }
@@ -679,7 +742,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 else
                     wp = source[i];
 
-                if (Vector3.Distance(wp, source[i]) > 1.5f && offset.sqrMagnitude > 0.01f)
+                if ((wp - source[i]).sqrMagnitude > 2.25f && offset.sqrMagnitude > 0.01f)
                 {
                     Vector3 reduced = source[i] + offset * 0.5f;
                     if (TrySnapToNavMesh(reduced, out Vector3 snappedReduced))
@@ -716,7 +779,11 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (_enablePathVisualization)
                 CreatePathVisualization();
 
-            LogManager.Debug($"[SquadShare] {player.DisplayName} adopted {newWaypoints.Count} waypoints from leader {leader.Player.DisplayName} (target {leaderNav._currentTargetRoom.Name}, nearest {nearestIdx}/{source.Count}, offset {offset}, bestDist {bestDist:F1}m)");
+            if (Plugin.Instance.Config.Debug)
+            {
+                float bestDist = Mathf.Sqrt(bestDistSq);
+                LogManager.Debug($"[SquadShare] {player.DisplayName} adopted {newWaypoints.Count} waypoints from leader {leader.Player.DisplayName} (target {leaderNav._currentTargetRoom.Name}, nearest {nearestIdx}/{source.Count}, offset {offset}, bestDist {bestDist:F1}m)");
+            }
             return true;
         }
 
@@ -734,7 +801,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (mate == null || !mate.Player.IsAlive || mate.Player.Role == RoleTypeId.Spectator)
                     continue;
 
-                Navigation? mateNav = mate.Player.GameObject?.GetComponent<Navigation>();
+                Navigation? mateNav = mate.CachedNavigation;
                 if (mateNav == null || mateNav == this)
                     continue;
 
@@ -750,13 +817,12 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     {
                         Vector3 mateTail = mateNav._waypoints[mateNav._waypoints.Count - 1];
                         Vector3 myTail = _waypoints[_waypoints.Count - 1];
-                        if (Vector3.Distance(mateTail, myTail) < 1.0f)
+                        if ((mateTail - myTail).sqrMagnitude < 1f)
                             continue;
                     }
                 }
 
-                float dist = Vector3.Distance(mate.Player.Position, transform.position);
-                if (dist > SquadShareMaxLeaderDistance)
+                if ((mate.Player.Position - transform.position).sqrMagnitude > SquadShareMaxLeaderDistanceSq)
                     continue;
 
                 mateNav.TryAdoptSquadWaypoints();
@@ -1091,6 +1157,27 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 }
 
                 Room? currentRoom = (player.CachedRoom ?? player.Room) ?? Room.GetRoomAtPosition(transform.position);
+                if (currentRoom == null)
+                {
+                    float bestDist = float.MaxValue;
+                    Room? bestRoom = null;
+                    foreach (Room room in Room.List)
+                    {
+                        if (room == null || room.GameObject == null)
+                            continue;
+
+                        float dist = (room.Position - transform.position).sqrMagnitude;
+                        if (dist < bestDist)
+                        {
+                            bestDist = dist;
+                            bestRoom = room;
+                        }
+                    }
+
+                    if (bestRoom != null && bestDist < 2500f)
+                        currentRoom = bestRoom;
+                }
+
                 if (currentRoom == null || player.Team == Team.Dead)
                 {
                     if (transform.position.y > 1000f)
@@ -1172,7 +1259,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 {
                     string cur = _bot.Player.Room?.Name.ToString() ?? "null";
                     string tgt = _currentTargetRoom?.Name.ToString() ?? "null";
-                    LogManager.Debug($"{_bot.Player.DisplayName} - {cur} -> {tgt} No reachable path found; stopping navigation (targetPos {targetPosition}).");
+                    LogManager.Debug($"{_bot.Player.DisplayName} - {cur} -> {tgt} No reachable path found stopping navigation (targetPos {targetPosition}).");
                     _pathFailCooldown = PathFailRetryDelay;
                     StopNavigation();
                     return;
@@ -1309,9 +1396,14 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 return false;
             }
 
-            if (Vector3.Distance(transform.position, startHit.position) > 4f)
+            if ((transform.position - startHit.position).sqrMagnitude > 16f)
             {
-                LogManager.Debug($"Bot is {Vector3.Distance(transform.position, startHit.position):F2}m from nearest navmesh.");
+                if (Plugin.Instance.Config.Debug)
+                {
+                    float d = Vector3.Distance(transform.position, startHit.position);
+                    LogManager.Debug($"Bot is {d:F2}m from nearest navmesh.");
+                }
+
                 return false;
             }
 
@@ -1342,7 +1434,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             _waypoints.AddRange(path.corners);
 
-            if (Vector3.Distance(_waypoints[_waypoints.Count - 1], targetHit.position) > 0.5f)
+            if ((_waypoints[_waypoints.Count - 1] - targetHit.position).sqrMagnitude > 0.25f)
                 _waypoints.Add(targetHit.position);
 
             SubdivideLongSegments(_waypoints);
@@ -1368,7 +1460,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             Room? startRoom = Room.GetRoomAtPosition(startHit.position) ?? player.CachedRoom ?? Room.GetRoomAtPosition(transform.position);
             if (!ValidateWaypointAdjacency(_waypoints, startRoom))
             {
-                LogManager.Debug($"NavMesh path adjacency warning: waypoints traverse non-adjacent rooms from {startRoom?.Name} to {Room.GetRoomAtPosition(targetHit.position)?.Name} — but physics check passed, allowing.");
+                LogManager.Debug($"NavMesh path adjacency warning: waypoints traverse nonadjacent rooms from {startRoom?.Name} to {Room.GetRoomAtPosition(targetHit.position)?.Name} - but physics check passed, allowing.");
             }
 
             if (!ValidatePathPhysics(_waypoints, transform.position))
@@ -1392,7 +1484,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             {
                 Vector3 from = waypoints[i];
                 Vector3 to = waypoints[i + 1];
-                if (Vector3.Distance(from, to) < 0.3f)
+                if ((from - to).sqrMagnitude < 0.09f)
                     continue;
                     
                 bool fromOnMesh = NavMesh.SamplePosition(from, out NavMeshHit fh, 1f, GetNavMeshAreaMask());
@@ -1412,12 +1504,12 @@ namespace UncomplicatedCustomBots.API.Features.Components
                             Vector3 origin = fromSnap + Vector3.up * 0.5f;
                             if (Physics.Raycast(origin, dir, out RaycastHit phyHit, dist, AnySolidMask, QueryTriggerInteraction.Ignore))
                             {
-                                if (phyHit.collider != null && phyHit.collider.GetComponentInParent<DoorVariant>() == null)
+                                if (phyHit.collider != null && !IsPlayerCollider(phyHit.collider) && phyHit.collider.GetComponentInParent<DoorVariant>() == null)
                                     return false;
 
                                 if (Physics.CapsuleCast(fromSnap + Vector3.up * 0.2f, fromSnap + Vector3.up * 1f, BodyRadius, dir, out RaycastHit capHit, dist, AnySolidMask, QueryTriggerInteraction.Ignore))
                                 {
-                                    if (capHit.collider != null && capHit.collider.GetComponentInParent<DoorVariant>() == null)
+                                    if (capHit.collider != null && !IsPlayerCollider(capHit.collider) && capHit.collider.GetComponentInParent<DoorVariant>() == null)
                                         return false;
                                 }
                             }
@@ -1433,6 +1525,9 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     if (c == null || c.isTrigger || c.transform.root == transform.root)
                         continue;
 
+                    if (IsPlayerCollider(c))
+                        continue;
+
                     if (c.GetComponentInParent<DoorVariant>() != null)
                         continue;
 
@@ -1442,11 +1537,11 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     if (c is not BoxCollider && c is not SphereCollider && c is not CapsuleCollider && c is not MeshCollider)
                         continue;
 
-                    float hitsDist = Vector3.Distance(c.ClosestPoint(mid), mid);
-                    if (hitsDist < BodyRadius * 0.5f)
+                    float hitsDistSq = (c.ClosestPoint(mid) - mid).sqrMagnitude;
+                    if (hitsDistSq < 0.0225f)
                     {
                         Vector3 dir2 = (to - from).normalized;
-                        if (Physics.Raycast(from + Vector3.up * 0.5f, dir2, out RaycastHit rh, Vector3.Distance(from, to), AnySolidMask, QueryTriggerInteraction.Ignore))
+                        if (Physics.Raycast(from + Vector3.up * 0.5f, dir2, out RaycastHit rh, (to - from).magnitude, AnySolidMask, QueryTriggerInteraction.Ignore))
                         {
                             if (rh.collider == c)
                                 return false;
@@ -1473,9 +1568,26 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     continue;
 
                 bool adjacent = false;
-                adjacent = prevRoom.AdjacentRooms.Any(r => r == cur);
+                foreach (Room r in prevRoom.AdjacentRooms)
+                {
+                    if (r == cur)
+                    {
+                        adjacent = true;
+                        break;
+                    }
+                }
+
                 if (!adjacent)
-                    adjacent = cur.AdjacentRooms.Any(r => r == prevRoom);
+                {
+                    foreach (Room r in cur.AdjacentRooms)
+                    {
+                        if (r == prevRoom)
+                        {
+                            adjacent = true;
+                            break;
+                        }
+                    }
+                }
 
                 if (!adjacent)
                     return false;
@@ -1527,15 +1639,18 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (_waypoints.Count < 2)
                 return;
 
-            HashSet<DoorVariant> processedDoors = [];
-            List<(int index, Vector3 doorPos, Vector3 pastPos, bool insertPast)> insertions = [];
+            _insertDoorProcessedScratch.Clear();
+            _insertDoorInsertionsScratch.Clear();
+            HashSet<DoorVariant> processedDoors = _insertDoorProcessedScratch;
+            List<(int index, Vector3 doorPos, Vector3 pastPos, bool insertPast)> insertions = _insertDoorInsertionsScratch;
 
             for (int i = 0; i < _waypoints.Count - 1; i++)
             {
                 Vector3 from = _waypoints[i];
                 Vector3 to = _waypoints[i + 1];
-                Vector3 segmentDir = (to - from).normalized;
-                float segmentLength = Vector3.Distance(from, to);
+                Vector3 delta = to - from;
+                float segmentLength = delta.magnitude;
+                Vector3 segmentDir = delta / (segmentLength > 0.001f ? segmentLength : 1f);
 
                 if (segmentLength < 1f)
                     continue;
@@ -1559,7 +1674,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     if (doorPos == Vector3.zero)
                         doorPos = door.transform.position;
 
-                    if (Vector3.Distance(doorPos, from) < 0.5f || Vector3.Distance(doorPos, to) < 0.5f)
+                    if ((doorPos - from).sqrMagnitude < 0.25f || (doorPos - to).sqrMagnitude < 0.25f)
                         continue;
 
                     Vector3 doorForward = door.transform.forward;
@@ -1577,7 +1692,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                     }
 
                     Vector3 pastPos = doorPos + doorForward * DoorWaypointClearanceDistance;
-                    bool insertPast = Vector3.Distance(pastPos, to) >= 0.5f;
+                    bool insertPast = (pastPos - to).sqrMagnitude >= 0.25f;
 
                     insertions.Add((i + 1, doorPos, pastPos, insertPast));
                 }
@@ -1686,6 +1801,9 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
         private bool IsCheckpointElevatorRestricted(Room room)
         {
+            if (player.Team == Team.SCPs)
+                return false;
+
             if (room?.Name is not (RoomName.LczCheckpointA or RoomName.LczCheckpointB or RoomName.HczCheckpointA or RoomName.HczCheckpointB or RoomName.EzGateA or RoomName.EzGateB))
                 return false;
 
@@ -1710,7 +1828,10 @@ namespace UncomplicatedCustomBots.API.Features.Components
             if (_currentWaypointIndex >= _waypoints.Count)
             {
                 _isNavigating = false;
-                LogManager.Debug($"Navigation completed. Current room: {player.CachedRoom?.Name}, Target room: {_currentTargetRoom?.Name}");
+                if (Plugin.Instance.Config.Debug)
+                {
+                    LogManager.Debug($"Navigation completed. Current room: {player.CachedRoom?.Name}, Target room: {_currentTargetRoom?.Name}");
+                }
 
                 Room currentRoom = player.CachedRoom!;
                 if (currentRoom != null && TryHandleElevatorIfNeeded(currentRoom))
@@ -1722,14 +1843,17 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 return;
             }
 
-            while (_currentWaypointIndex < _waypoints.Count && Vector3.Distance(transform.position, _waypoints[_currentWaypointIndex]) <= WaypointReachedDistance)
+            while (_currentWaypointIndex < _waypoints.Count && (transform.position - _waypoints[_currentWaypointIndex]).sqrMagnitude <= WaypointReachedDistanceSq)
             {
                 _currentWaypointIndex++;
                 UpdateWaypointVisualization();
                 if (_currentWaypointIndex >= _waypoints.Count)
                 {
                     _isNavigating = false;
-                    LogManager.Debug($"Navigation completed. Current room: {player.CachedRoom?.Name}, Target room: {_currentTargetRoom?.Name}");
+                    if (Plugin.Instance.Config.Debug)
+                    {
+                        LogManager.Debug($"Navigation completed. Current room: {player.CachedRoom?.Name}, Target room: {_currentTargetRoom?.Name}");
+                    }
 
                     Room currentRoom = player.CachedRoom!;
                     if (currentRoom != null && TryHandleElevatorIfNeeded(currentRoom))
@@ -1758,7 +1882,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             bool isFinalWaypoint = _currentWaypointIndex == _waypoints.Count - 1;
 
-            if (pathDoor != null && Vector3.Distance(transform.position, pathDoor.transform.position) > DoorCenterPassDistance)
+            if (pathDoor != null && (transform.position - pathDoor.transform.position).sqrMagnitude > DoorCenterPassDistanceSq)
             {
                 MoveTowards(pathDoor.transform.position, _speed, slowDown: isFinalWaypoint);
                 return;
@@ -1767,8 +1891,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             Vector3 target = currentWaypoint;
             if (!isFinalWaypoint && _currentWaypointIndex + 1 < _waypoints.Count)
             {
-                float distToCurrent = Vector3.Distance(transform.position, currentWaypoint);
-                if (distToCurrent < 2.0f)
+                if ((transform.position - currentWaypoint).sqrMagnitude < 4f)
                 {
                     Vector3 next = _waypoints[_currentWaypointIndex + 1];
                     target = Vector3.Lerp(currentWaypoint, next, 0.35f);
@@ -2065,6 +2188,9 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             if (Physics.CapsuleCast(bottom, top, BodyRadius, direction, out RaycastHit hit, distance, ObstacleMask, QueryTriggerInteraction.Ignore))
             {
+                if (IsPlayerCollider(hit.collider))
+                    return to;
+
                 if (hit.normal.y >= ClimbableSurfaceNormalY)
                     return to;
 
@@ -2123,7 +2249,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             Vector3 origin = position + Vector3.up * AvoidanceHeight;
             if (Physics.Raycast(origin, direction, out RaycastHit frontHit, AvoidanceDetectDistance, ObstacleMask, QueryTriggerInteraction.Ignore))
             {
-                if (!IsWalkableNavMeshPoint(frontHit.point) && frontHit.normal.y < 0.4f && frontHit.distance < AvoidanceSlideDistance)
+                if (!IsPlayerCollider(frontHit.collider) && !IsWalkableNavMeshPoint(frontHit.point) && frontHit.normal.y < 0.4f && frontHit.distance < AvoidanceSlideDistance)
                 {
                     Vector3 slide = Vector3.ProjectOnPlane(direction, frontHit.normal);
                     slide.y = 0f;
@@ -2172,48 +2298,81 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
         private bool HasSideClearance(Vector3 position, Vector3 sideDirection, float checkDistance = 1.5f)
         {
-            if (Physics.Raycast(position + Vector3.up * 0.5f, sideDirection, out _, checkDistance, ObstacleMask, QueryTriggerInteraction.Ignore))
-                return false;
+            int hitCount = Physics.RaycastNonAlloc(position + Vector3.up * 0.5f, sideDirection, _raycastBuffer, checkDistance, ObstacleMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (!IsPlayerCollider(_raycastBuffer[i].collider))
+                    return false;
+            }
 
-            if (Physics.Raycast(position + Vector3.up * AvoidanceHeight, sideDirection, out _, checkDistance, ObstacleMask, QueryTriggerInteraction.Ignore))
-                return false;
+            hitCount = Physics.RaycastNonAlloc(position + Vector3.up * AvoidanceHeight, sideDirection, _raycastBuffer, checkDistance, ObstacleMask, QueryTriggerInteraction.Ignore);
+            for (int i = 0; i < hitCount; i++)
+            {
+                if (!IsPlayerCollider(_raycastBuffer[i].collider))
+                    return false;
+            }
 
             return true;
         }
 
         private DoorVariant FindDoorOnPath(Vector3 waypoint)
         {
-            Vector3 directionToWaypoint = (waypoint - transform.position).normalized;
-            float distanceToWaypoint = Vector3.Distance(transform.position, waypoint);
+            if (_cachedDoorWaypointIndex == _currentWaypointIndex && _cachedDoorWaypointPos == waypoint && _cachedDoorOnPath != null)
+            {
+                if (_cachedDoorOnPath != null && !IsDoorFailed(_cachedDoorOnPath) && !_cachedDoorOnPath.TargetState)
+                    return _cachedDoorOnPath!;
+
+                if (_cachedDoorOnPath == null)
+                    return null!;
+            }
+
+            Vector3 toWaypoint = waypoint - transform.position;
+            float distanceToWaypoint = toWaypoint.magnitude;
+            Vector3 directionToWaypoint = distanceToWaypoint > 0.001f ? toWaypoint / distanceToWaypoint : Vector3.forward;
 
             DoorVariant? raycastDoor = FindDoorByRaycast(transform.position, directionToWaypoint, distanceToWaypoint);
             if (raycastDoor != null && !IsDoorFailed(raycastDoor))
+            {
+                _cachedDoorWaypointIndex = _currentWaypointIndex;
+                _cachedDoorWaypointPos = waypoint;
+                _cachedDoorOnPath = raycastDoor;
                 return raycastDoor;
+            }
 
             if (_bot?.BotDetectionRadius == null)
+            {
+                _cachedDoorWaypointIndex = _currentWaypointIndex;
+                _cachedDoorWaypointPos = waypoint;
+                _cachedDoorOnPath = null;
                 return null!;
+            }
 
             DoorVariant closestDoor = null!;
-            float closestDistance = float.MaxValue;
+            float closestDistanceSq = float.MaxValue;
+            float waypointSq = distanceToWaypoint * distanceToWaypoint;
 
             foreach (DoorVariant door in _bot.BotDetectionRadius.DoorsInRange)
             {
                 if (door == null || IsDoorFailed(door))
                     continue;
 
-                float distanceToDoor = Vector3.Distance(transform.position, door.transform.position);
-                if (distanceToDoor >= distanceToWaypoint)
+                Vector3 toDoor = door.transform.position - transform.position;
+                float distanceToDoorSq = toDoor.sqrMagnitude;
+                if (distanceToDoorSq >= waypointSq)
                     continue;
 
-                Vector3 directionToDoor = (door.transform.position - transform.position).normalized;
+                Vector3 directionToDoor = toDoor.sqrMagnitude > 0.001f ? toDoor.normalized : Vector3.forward;
 
-                if (Vector3.Dot(directionToWaypoint, directionToDoor) > 0.5f && distanceToDoor < closestDistance)
+                if (Vector3.Dot(directionToWaypoint, directionToDoor) > 0.5f && distanceToDoorSq < closestDistanceSq)
                 {
-                    closestDistance = distanceToDoor;
+                    closestDistanceSq = distanceToDoorSq;
                     closestDoor = door;
                 }
             }
 
+            _cachedDoorWaypointIndex = _currentWaypointIndex;
+            _cachedDoorWaypointPos = waypoint;
+            _cachedDoorOnPath = closestDoor;
             return closestDoor!;
         }
 
@@ -2264,9 +2423,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 return;
             }
 
-            float distanceToDoor = Vector3.Distance(transform.position, door.transform.position);
-
-            if (distanceToDoor > DoorInteractionDistance)
+            if ((transform.position - door.transform.position).sqrMagnitude > DoorInteractionDistanceSq)
             {
                 MoveTowardsTarget(door.transform.position);
                 return;
@@ -2328,7 +2485,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _doorWaitTimer -= Time.deltaTime;
 
             bool doorDestroyed = _currentDoor == null || _currentDoor.gameObject == null;
-            bool doorOpened = !doorDestroyed && _currentDoor.TargetState;
+            bool doorOpened = !doorDestroyed && _currentDoor!.TargetState;
 
             if (doorDestroyed || doorOpened || _doorWaitTimer <= 0f)
             {
@@ -2386,12 +2543,21 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 DoorVariant doorAhead = FindDoorOnPath(_waypoints[_currentWaypointIndex]);
                 if (doorAhead != null && !doorAhead.TargetState)
                     return;
-
-                if (_waypoints.Count == 0)
-                    return;
             }
             else if (_waypoints.Count == 0)
             {
+                if (_isNavigating)
+                {
+                    _stuckTimer += Time.deltaTime;
+                    if (_stuckTimer > StuckTimeLimit)
+                    {
+                        _isAttemptingUnstuck = true;
+                        _stuckTimer = 0f;
+                    }
+
+                    _lastPosition = transform.position;
+                }
+
                 return;
             }
 
@@ -2599,6 +2765,9 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (hit.collider.isTrigger || hit.collider.transform.root == transform.root)
                     continue;
 
+                if (IsPlayerCollider(hit.collider))
+                    continue;
+
                 grounded = true;
                 break;
             }
@@ -2611,6 +2780,9 @@ namespace UncomplicatedCustomBots.API.Features.Components
             {
                 Collider collider = _overlapBuffer[i];
                 if (collider.isTrigger || collider.transform.root == transform.root)
+                    continue;
+
+                if (IsPlayerCollider(collider))
                     continue;
 
                 return false;
@@ -2742,7 +2914,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             if (!ElevatorChamber.TryGetChamber(ElevatorGroup.Scp049, out ElevatorChamber chamber) || chamber == null)
             {
-                LogManager.Warn("Could not find the SCP-049 elevator chamber while trying to leave the 049 room");
+                LogManager.Warn("Could not find the SCP049 elevator chamber while trying to leave the 049 room");
                 return false;
             }
 
@@ -2756,7 +2928,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (BuildNavMeshPath(elevatorPad))
                 {
                     _approachingElevatorPanel = true;
-                    LogManager.Debug($"Bot in the SCP-049 room has a navmesh path to the elevator pad at {elevatorPad}");
+                    LogManager.Debug($"Bot in the SCP049 room has a navmesh path to the elevator pad");
                 }
                 else
                     LogManager.Warn($"Failed to build navmesh path to SCP-049 elevator pad at {elevatorPad}");
@@ -2781,7 +2953,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             if (currentLevel < 0 || targetLevel < 0 || currentLevel == targetLevel)
             {
-                LogManager.Warn($"Could not determine levels for the SCP-049 elevator (current={currentLevel}, target={targetLevel})");
+                LogManager.Warn($"Could not determine levels for the SCP049 elevator (current={currentLevel}, target={targetLevel})");
                 CalculatePath();
                 return true;
             }
@@ -2790,14 +2962,14 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
             if (chamber.DestinationLevel != currentLevel || !chamber.IsReady)
             {
-                LogManager.Debug($"Calling the SCP-049 elevator to level {currentLevel}");
+                LogManager.Debug($"Calling the SCP049 elevator to level {currentLevel}");
                 _waitingForElevator = true;
                 _elevatorWaitTimer = ElevatorWaitTimeout;
                 chamber.ServerSetDestination(currentLevel, false);
             }
             else
             {
-                LogManager.Debug("SCP-049 elevator already at the 049 room level, entering");
+                LogManager.Debug("SCP049 elevator already at the 049 room level, entering");
                 EnterElevator(chamber);
             }
 
@@ -2829,7 +3001,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 return;
             }
 
-            if (IsKeycardElevatorChamber(chamber) && !HasElevatorKeycardAccess(chamber))
+            if (IsKeycardElevatorChamber(chamber) && player.Team != Team.SCPs && !HasElevatorKeycardAccess(chamber))
             {
                 LogManager.Debug($"Bot lacks the keycard permission ({GetRequiredElevatorPermission(chamber)}) required for elevator {chamber.AssignedGroup}, skipping elevator");
                 _approachingElevatorPanel = false;
@@ -2897,7 +3069,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (!IsElevatorUseful(panel.AssignedChamber, currentZone, targetZone, currentRoom))
                     continue;
 
-                if (IsKeycardElevatorChamber(panel.AssignedChamber) && !HasElevatorKeycardAccess(panel.AssignedChamber))
+                if (IsKeycardElevatorChamber(panel.AssignedChamber) && player.Team != Team.SCPs && !HasElevatorKeycardAccess(panel.AssignedChamber))
                     continue;
 
                 float distance = Vector3.Distance(transform.position, panel.transform.position);
@@ -3164,7 +3336,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 return;
             }
 
-            LogManager.Debug($"Bot is {distanceToCenter:F1}m from elevator center, starting walk-in phase");
+            LogManager.Debug($"Bot is {distanceToCenter:F1}m from elevator center, starting walkin phase");
             _walkingIntoElevator = true;
             _walkIntoChamber = chamber;
             _walkIntoTimer = WalkIntoElevatorTimeout;
@@ -3264,7 +3436,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _walkIntoTimer -= Time.deltaTime;
             if (_walkIntoTimer <= 0f)
             {
-                LogManager.Warn($"Walk-into-elevator timed out, forcing entry");
+                LogManager.Warn($"Walk into elevator timed out, forcing entry");
                 _walkingIntoElevator = false;
                 _walkIntoChamber = null!;
 
@@ -3468,7 +3640,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
                 if (rescueRoom != null)
                 {
                     Vector3 dest = _roomQuery.GetRoomDestination(rescueRoom, transform.position);
-                    if (dest == Vector3.zero || Vector3.Distance(dest, transform.position) < 5f)
+                    if (dest == Vector3.zero || (dest - transform.position).sqrMagnitude < 25f)
                     {
                         if (!NavMesh.SamplePosition(rescueRoom.Position + Vector3.up, out NavMeshHit hr, 20f, GetNavMeshAreaMask()))
                         {

@@ -9,6 +9,8 @@ using EventTarget = LabApi.Events.Handlers.ServerEvents;
 using Dummy = UncomplicatedCustomBots.Events.Handlers.Dummy;
 using MEC;
 using UncomplicatedCustomBots.Events.Internal;
+using UncomplicatedCustomBots.API.Features;
+
 
 #if EXILED
 using Exiled.API.Enums;
@@ -81,6 +83,8 @@ namespace UncomplicatedCustomBots
 
             LogManager.StartFlushCoroutine();
 
+            Bot.EnsureGlobalCollisionsIgnored();
+
             if (Config.Debug)
             {
                 Dummy.DummySpawning += OnDummySpawning;
@@ -119,7 +123,11 @@ namespace UncomplicatedCustomBots
 #endif
         }
         
-        private void OnWaitingForPlayers() => Timing.RunCoroutine(Updater.CheckForUpdatesCoroutine());
+        private void OnWaitingForPlayers()
+        {
+            Bot.EnsureGlobalCollisionsIgnored();
+            Timing.RunCoroutine(Updater.CheckForUpdatesCoroutine());
+        }
 
         private void OnDummySpawning(DummySpawningEventArgs ev)
         {

@@ -154,8 +154,8 @@ namespace UncomplicatedCustomBots
             ItemType.KeycardCustomMetalCase
         ];
 
-        [Description("NavMeshAgent avoidance quality for bot steering. Higher quality uses more CPU but avoids collisions better. Applies to unlimited bot counts.")]
-        public string NavMeshAvoidanceQuality { get; set; } = "Medium";
+        [Description("NavMeshAgent avoidance quality for bot steering. Higher quality uses more CPU but avoids collisions better. Applies to unlimited bot counts. Use 'None' to disable avoidance so bots can pass through each other like players.")]
+        public string NavMeshAvoidanceQuality { get; set; } = "None";
 
         [Description("Maximum concurrent async NavMesh path calculations. Lower keeps main thread smoother at high bot counts.")]
         public int PathQueueConcurrency { get; set; } = 2;

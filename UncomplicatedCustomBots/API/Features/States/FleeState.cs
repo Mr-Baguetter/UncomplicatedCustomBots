@@ -40,13 +40,16 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void FindFleeDestination()
         {
-            Navigation nav = Bot.Player.GameObject!.GetComponent<Navigation>();
+            Navigation? nav = Bot.CachedNavigation;
             if (nav == null)
             {
                 nav = Bot.Player.GameObject!.AddComponent<Navigation>();
+                Bot.SetCachedNavigation(nav);
             }
             else
+            {
                 nav.enabled = true;
+            }
                 
             if (Bot.Player.RoleBase is IFpcRole fpc)
             {
@@ -82,7 +85,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 if (bestFleeRoom != null && !sameZone && bestFleeRoom.Zone == currentRoom?.Zone)
                     continue;
 
-                float dist = Vector3.Distance(r.Position, _fleeFromPosition);
+                float dist = (r.Position - _fleeFromPosition).sqrMagnitude;
                 if (dist > bestDistance || (sameZone && bestFleeRoom?.Zone != currentRoom?.Zone))
                 {
                     bestDistance = dist;
@@ -92,22 +95,31 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (bestFleeRoom != null)
             {
-                LogManager.Debug($"{Bot.Player.Nickname} fleeing to {bestFleeRoom.Name} ({bestFleeRoom.Zone})");
+                if (Plugin.Instance.Config.Debug)
+                {
+                    LogManager.Debug($"{Bot.Player.Nickname} fleeing to {bestFleeRoom.Name} ({bestFleeRoom.Zone})");
+                }
+
                 nav.SetDestination(bestFleeRoom);
             }
             else
+            {
                 Bot.ChangeState(new WalkingState(Bot));
+            }
         }
 
         public override void Update()
         {
+            float fleeDistanceSq = _fleeDistance * _fleeDistance;
             bool fleeCondition;
             if (_scpTarget != null)
             {
-                fleeCondition = _scpTarget.Role == RoleTypeId.Spectator || Vector3.Distance(Bot.Player.Position, _fleeFromPosition) > _fleeDistance;
+                fleeCondition = _scpTarget.Role == RoleTypeId.Spectator || (Bot.Player.Position - _fleeFromPosition).sqrMagnitude > fleeDistanceSq;
             }
             else
-                fleeCondition = Vector3.Distance(Bot.Player.Position, _fleeFromPosition) > _fleeDistance;
+            {
+                fleeCondition = (Bot.Player.Position - _fleeFromPosition).sqrMagnitude > fleeDistanceSq;
+            }
 
             if (fleeCondition)
             {
@@ -115,8 +127,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                 return;
             }
 
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav) && !nav.IsNavigating && !nav.IsRepathBlocked)
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null && !nav.IsNavigating && !nav.IsRepathBlocked)
+            {
                 FindFleeDestination();
+            }
         }
 
         public override void Exit() { }

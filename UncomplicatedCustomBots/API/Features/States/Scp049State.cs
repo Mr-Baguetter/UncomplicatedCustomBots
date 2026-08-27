@@ -51,9 +51,10 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
             {
-                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator & !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
+                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator && !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
                 {
                     nav.StopNavigation();
                     nav.enabled = false;
@@ -68,7 +69,8 @@ namespace UncomplicatedCustomBots.API.Features.States
         public override void Update()
         {
             _stateStabilityTimer += Time.deltaTime;
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var elevatorNav) && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            Navigation? elevatorNav = Bot.CachedNavigation;
+            if (elevatorNav != null && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
                 return;
 
             if (HandleRagdollBehavior())
@@ -122,10 +124,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target == null)
                 return;
 
-            float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-
             Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
-            if (distanceToTarget <= 2.8f && Bot.HasLineOfSight(_target, HitregMask) && !Bot.Player.HasEffect<Flashed>())
+            if ((Bot.Player.Position - _target.Position).sqrMagnitude <= 7.84f && Bot.HasLineOfSight(_target, HitregMask) && !Bot.Player.HasEffect<Flashed>())
                 HandleCombat();
         }
 
@@ -153,8 +153,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                     return false;
                 }
 
-                float distance = Vector3.Distance(Bot.Player.Position, _ragdollTarget.position);
-                if (distance > RESURRECT_DISTANCE + 1f)
+                if ((Bot.Player.Position - _ragdollTarget.position).sqrMagnitude > 9f)
                 {
                     StopResurrection();
                     return false;
@@ -195,11 +194,9 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_ragdollTarget != null)
             {
-                float distance = Vector3.Distance(Bot.Player.Position, _ragdollTarget.position);
-
                 LookAtRagdoll();
 
-                if (distance <= RESURRECT_DISTANCE)
+                if ((Bot.Player.Position - _ragdollTarget.position).sqrMagnitude <= 4f)
                 {
                     BasicRagdoll basicRagdoll = _ragdollTarget.GetComponent<BasicRagdoll>();
                     if (basicRagdoll != null)
@@ -255,10 +252,10 @@ namespace UncomplicatedCustomBots.API.Features.States
                     Ragdoll ragdoll = Ragdoll.Get(basicRagdoll);
                     if (ragdoll != null && ragdoll.IsRevivableBy(Bot.Player))
                     {
-                        float distance = Vector3.Distance(Bot.Player.Position, collider.transform.position);
-                        if (distance < closestDistance)
+                        float sq = (Bot.Player.Position - collider.transform.position).sqrMagnitude;
+                        if (sq < closestDistance)
                         {
-                            closestDistance = distance;
+                            closestDistance = sq;
                             closestRagdoll = collider.transform;
                         }
                     }
@@ -306,8 +303,8 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             StopResurrection();
 
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
-                nav.enabled = true;
+            Navigation? nav = Bot.CachedNavigation;
+            nav?.enabled = true;
         }
     }
 }

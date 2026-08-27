@@ -26,10 +26,10 @@ namespace UncomplicatedCustomBots.API.Managers
         public const int AgentTypeId = 0;
         public const float AgentRadius = 0.25f;
         public const float AgentHeight = 0.83f;
-        public const float AgentClimb = 0.25f;
-        public const float AgentSlope = 35f;
-        public const float VoxelSize = 0.05f;
-        public const int TileSize = 32;
+        public const float AgentClimb = 0.1f;
+        public const float AgentSlope = 45f;
+        public const float VoxelSize = 0.1f;
+        public const int TileSize = 64;
         public const int DefaultArea = 0;
         public const int NotWalkableArea = 1;
         public const int DoorBlockedArea = 2;
@@ -164,8 +164,21 @@ namespace UncomplicatedCustomBots.API.Managers
                         });
 
                         recovered++;
-                        if (recovered % 25 == 0)
+                        if (recovered % 10 == 0)
                             yield return Timing.WaitForOneFrame;
+                    }
+
+                    if (pending.Count > recovered)
+                    {
+                        HashSet<MeshCollider> recoveredSet = new(pending.Count);
+                        foreach ((PendingMeshRequest req, _) in decodeTask.Result)
+                            recoveredSet.Add(req.Collider);
+
+                        for (int i = sources.Count - 1; i >= 0; i--)
+                        {
+                            if (sources[i].component is MeshCollider mc && !mc.sharedMesh.isReadable && !recoveredSet.Contains(mc))
+                                sources.RemoveAt(i);
+                        }
                     }
 
                     LogManager.Info($"NavMesh: unreadable mesh recovery done, recovered={recovered}, missing={pending.Count - recovered}.");
@@ -266,7 +279,7 @@ namespace UncomplicatedCustomBots.API.Managers
                     _navMeshData = pendingData;
                     float syncElapsed = Time.realtimeSinceStartup - buildStart;
                     _navMeshInstance = NavMesh.AddNavMeshData(_navMeshData);
-                    LogManager.Info($"NavMesh baked successfully (sync fallback): {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={syncElapsed:F2}s");
+                    LogManager.Info($"NavMesh baked successfully (fallback): {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={syncElapsed:F2}s");
                 }
                 else
                 {
@@ -288,23 +301,21 @@ namespace UncomplicatedCustomBots.API.Managers
                             {
                                 LogManager.Error($"NavMesh: synchronous fallback failed: {ex}");
                             }
+                            
                             if (syncData == null)
                             {
                                 LogManager.Warn("NavMesh: synchronous fallback returned null, bake aborted.");
                                 yield break;
                             }
+
                             pendingData = syncData;
                             _navMeshData = pendingData;
                             float syncElapsed = Time.realtimeSinceStartup - buildStart;
                             _navMeshInstance = NavMesh.AddNavMeshData(_navMeshData);
-                            LogManager.Info($"NavMesh baked successfully (sync fallback after timeout): {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={syncElapsed:F2}s");
+                            LogManager.Info($"NavMesh baked successfully (fallback after timeout): {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={syncElapsed:F2}s");
                             break;
                         }
-                        if (Time.realtimeSinceStartup - lastLog > 2f)
-                        {
-                            LogManager.Debug($"NavMesh async baking... {asyncOp.progress * 100f:F0}%");
-                            lastLog = Time.realtimeSinceStartup;
-                        }
+                        
                         yield return Timing.WaitForOneFrame;
                     }
 
@@ -319,7 +330,7 @@ namespace UncomplicatedCustomBots.API.Managers
 
                         float elapsed = Time.realtimeSinceStartup - buildStart;
                         _navMeshInstance = NavMesh.AddNavMeshData(_navMeshData);
-                        LogManager.Info($"NavMesh baked successfully (async): {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={elapsed:F2}s");
+                        LogManager.Info($"NavMesh baked successfully: {sources.Count} sources, bounds {bounds.size}, valid={_navMeshInstance.valid}, elapsed={elapsed:F2}s");
                         if (!_navMeshInstance.valid)
                         {
                             LogManager.Warn("NavMesh: async bake produced invalid instance, data may be empty.");
@@ -1364,6 +1375,9 @@ namespace UncomplicatedCustomBots.API.Managers
             foreach (NavMeshBuildSource source in sources)
             {
                 Vector3 center = source.transform.GetPosition();
+                if (center.y > 1200f || center.y < -400f)
+                    continue;
+
                 EncapsulatePoint(center);
 
                 switch (source.shape)

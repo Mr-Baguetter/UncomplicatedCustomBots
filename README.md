@@ -11,11 +11,11 @@ Bots spawn automatically at the start of each round, pick a team, move through t
 
 ## What the bots can do
 
-- **Fill empty servers** — bots join when there are few real players and leave to make room when more players connect.
-- **Move realistically** — they walk through doors, elevators, and corridors.
-- **Play as a team** — MTF, Chaos and Guards form small squads and stick together.
-- **Fight, flee and search** — humans shoot, reload, take cover and heal; SCP bots have their own behaviors (049, 049-2, 106, 173, 939, 3114).
-- **Pick up items** — they can grab keycards, guns, medkits and other items you allow in the config.
+- **Fill empty servers** - bots join when there are few real players and leave to make room when more players connect.
+- **Move realistically** - they walk through doors, elevators, and corridors.
+- **Play as a team** - MTF, Chaos and Guards form small squads and stick together.
+- **Fight, flee and search** - humans shoot, reload, take cover and heal; SCP bots have their own behaviors (049, 049-2, 106, 173, 939, 3114).
+- **Pick up items** - they can grab keycards, guns, medkits and other items you allow in the config.
 
 ---
 

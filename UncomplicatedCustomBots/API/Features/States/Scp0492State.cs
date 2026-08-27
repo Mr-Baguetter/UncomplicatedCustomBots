@@ -32,18 +32,23 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
             {
                 nav.StopNavigation();
                 nav.enabled = false;
             }
 
             if (!Bot.Player.GameObject!.TryGetComponent<PlayerFollower>(out var follower))
+            {
                 follower = Bot.Player.GameObject.AddComponent<PlayerFollower>();
+            }
 
             follower.enabled = true;
             if (SCP049 != null)
+            {
                 follower.Init(SCP049.ReferenceHub);
+            }
         }
 
         public override void Update()
@@ -105,8 +110,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private void HandleCombat()
         {
-            float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-            if (_target == null || !Bot.HasLineOfSight(_target, ObstacleMask, allowTargetHit: false) || Bot.Player.HasEffect<Flashed>() || distanceToTarget > 2f)
+            if (_target == null || !Bot.HasLineOfSight(_target, ObstacleMask, allowTargetHit: false) || Bot.Player.HasEffect<Flashed>() || (Bot.Player.Position - _target.Position).sqrMagnitude > 4f)
                 return;
 
             _fireTimer -= Time.deltaTime;
@@ -116,7 +120,8 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
             {
                 nav.enabled = true;
             }

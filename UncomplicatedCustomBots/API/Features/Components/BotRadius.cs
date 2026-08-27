@@ -29,7 +29,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             SphereCollider ??= gameObject.AddComponent<SphereCollider>();
             SphereCollider.isTrigger = true;
             SphereCollider.radius = DefaultRadius;
-            SphereCollider.gameObject.layer = 16; // InvisibleCollider
+            // SphereCollider.gameObject.layer = 16; // InvisibleCollider
 
             Collider = SphereCollider;
 
@@ -39,12 +39,22 @@ namespace UncomplicatedCustomBots.API.Features.Components
 
         private float _overlapTimer = 0f;
         private const float OverlapInterval = 0.2f;
+        private static readonly int _overlapMask = LayerMask.GetMask("Default", "Door");
+        private bool _staggerInitialized = false;
 
         private void Update()
         {
+            if (!_staggerInitialized)
+            {
+                _staggerInitialized = true;
+                if (Bot != null)
+                    _overlapTimer = Bot.Player.PlayerId % 5 * 0.04f;
+            }
+
             _overlapTimer += Time.deltaTime;
             if (_overlapTimer < OverlapInterval)
                 return;
+                
             _overlapTimer = 0f;
 
             float radius = SphereCollider != null ? SphereCollider.radius : DefaultRadius;
@@ -54,7 +64,7 @@ namespace UncomplicatedCustomBots.API.Features.Components
             _doorsSet.Clear();
             _pickupsSet.Clear();
 
-            int count = Physics.OverlapSphereNonAlloc(transform.position, radius, _overlapBuffer, ~0, QueryTriggerInteraction.Collide);
+            int count = Physics.OverlapSphereNonAlloc(transform.position, radius, _overlapBuffer, _overlapMask, QueryTriggerInteraction.Collide);
 
             for (int i = 0; i < count; i++)
             {

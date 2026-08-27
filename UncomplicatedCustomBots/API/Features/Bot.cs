@@ -7,6 +7,7 @@ using UncomplicatedCustomBots.API.Features.Components;
 using UncomplicatedCustomBots.API.Features.States;
 using UncomplicatedCustomBots.API.Managers;
 using UncomplicatedCustomBots.Events.Handlers;
+using UnityEngine;
 using UnityEngine.AI;
 
 namespace UncomplicatedCustomBots.API.Features
@@ -20,6 +21,30 @@ namespace UncomplicatedCustomBots.API.Features
         private static readonly object _randomLock = new();
         private static readonly object _botListLock = new();
         public BotRadius? BotDetectionRadius { get; set; }
+
+        private Navigation? _cachedNavigation;
+        public Navigation? CachedNavigation
+        {
+            get
+            {
+                if (_cachedNavigation == null)
+                {
+                    _cachedNavigation = Player.GameObject?.GetComponent<Navigation>();
+                }
+
+                return _cachedNavigation;
+            }
+        }
+
+        internal void SetCachedNavigation(Navigation nav)
+        {
+            _cachedNavigation = nav;
+        }
+
+        internal void InvalidateNavigationCache()
+        {
+            _cachedNavigation = null;
+        }
 
         private static void RegisterBot(Bot bot)
         {
@@ -84,9 +109,10 @@ namespace UncomplicatedCustomBots.API.Features
             BotDetectionRadius = Player.GameObject!.AddComponent<BotRadius>();
             BotDetectionRadius?.Init(this);
             Player.GameObject!.AddComponent<Scp173StareMonitor>().Initialize(this);
- 
+  
             Player.InfoArea |= PlayerInfoArea.CustomInfo;
             Player.CustomInfo = "Bot";
+            SetupCollisions();
         }
 
         public Bot(ReferenceHub hub)
@@ -105,6 +131,7 @@ namespace UncomplicatedCustomBots.API.Features
 
             Player.InfoArea |= PlayerInfoArea.CustomInfo;
             Player.CustomInfo = "Bot";
+            SetupCollisions();
         }
 
         public void Start()
@@ -118,6 +145,7 @@ namespace UncomplicatedCustomBots.API.Features
             Player.GroupName = string.Empty;
             State = new WalkingState(this);
             Timing.CallDelayed(Timing.WaitForOneFrame, () => State?.Enter());
+            SetupCollisions();
         }
 
         public void RemoveGroup(Player player) => player.UserGroup = null;
@@ -165,25 +193,95 @@ namespace UncomplicatedCustomBots.API.Features
 
             BotComponent? botComponent = Player?.GameObject?.GetComponent<BotComponent>();
             if (botComponent != null)
-                UnityEngine.Object.Destroy(botComponent);
+                Object.Destroy(botComponent);
 
             Navigation? navigation = Player?.GameObject?.GetComponent<Navigation>();
             if (navigation != null)
-                UnityEngine.Object.Destroy(navigation);
+                Object.Destroy(navigation);
+
+            _cachedNavigation = null;
 
             NavMeshAgent? agent = Player?.GameObject?.GetComponent<NavMeshAgent>();
             if (agent != null)
-                UnityEngine.Object.Destroy(agent);
+                Object.Destroy(agent);
 
             BotRadius? radius = Player?.GameObject?.GetComponent<BotRadius>();
             if (radius != null)
-                UnityEngine.Object.Destroy(radius);
+                Object.Destroy(radius);
 
             Scp173StareMonitor? stareMonitor = Player?.GameObject?.GetComponent<Scp173StareMonitor>();
             if (stareMonitor != null)
-                UnityEngine.Object.Destroy(stareMonitor);
+                Object.Destroy(stareMonitor);
 
             Targeting.RemoveBot(this);
+        }
+
+        private void SetupCollisions()
+        {
+            Timing.CallDelayed(0.3f, () => ApplyCollisionIgnores());
+            Timing.CallDelayed(1.0f, () => ApplyCollisionIgnores());
+        }
+
+        private void ApplyCollisionIgnores()
+        {
+            if (Player?.GameObject == null)
+                return;
+
+            Collider[] myColliders = Player.GameObject.GetComponentsInChildren<Collider>(true);
+            if (myColliders == null || myColliders.Length == 0)
+                return;
+
+            foreach (ReferenceHub hub in ReferenceHub.AllHubs)
+            {
+                if (hub == null || hub.gameObject == null || hub.gameObject == Player.GameObject)
+                    continue;
+
+                Collider[] otherColliders = hub.GetComponentsInChildren<Collider>(true);
+                if (otherColliders == null || otherColliders.Length == 0)
+                    continue;
+
+                foreach (Collider a in myColliders)
+                {
+                    if (a == null)
+                        continue;
+
+                    foreach (Collider b in otherColliders)
+                    {
+                        if (b == null)
+                            continue;
+
+                        Physics.IgnoreCollision(a, b, true);
+                    }
+                }
+            }
+
+            EnsureLayerCollisionsIgnored();
+        }
+
+        private static void EnsureLayerCollisionsIgnored()
+        {
+            int playerLayer = LayerMask.NameToLayer("Player");
+            int hitboxLayer = LayerMask.NameToLayer("Hitbox");
+            int ragdollLayer = LayerMask.NameToLayer("Ragdoll");
+
+            if (playerLayer >= 0)
+            {
+                if (hitboxLayer >= 0)
+                    Physics.IgnoreLayerCollision(playerLayer, hitboxLayer, true);
+
+                if (ragdollLayer >= 0)
+                    Physics.IgnoreLayerCollision(playerLayer, ragdollLayer, true);
+
+                Physics.IgnoreLayerCollision(playerLayer, playerLayer, true);
+            }
+
+            if (hitboxLayer >= 0)
+                Physics.IgnoreLayerCollision(hitboxLayer, hitboxLayer, true);
+        }
+
+        public static void EnsureGlobalCollisionsIgnored()
+        {
+            EnsureLayerCollisionsIgnored();
         }
 
         public void Update() => State?.Update();

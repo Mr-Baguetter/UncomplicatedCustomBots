@@ -41,13 +41,18 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public WalkingState(Bot bot) : base(bot)
         {
-            _navigator = bot.Player.GameObject!.GetComponent<Navigation>();
-            if (_navigator == null)
+            Navigation? cached = bot.CachedNavigation;
+            if (cached == null)
             {
-                _navigator = bot.Player.GameObject!.AddComponent<Navigation>();
+                cached = bot.Player.GameObject!.AddComponent<Navigation>();
+                bot.SetCachedNavigation(cached);
             }
             else
-                _navigator.enabled = true;
+            {
+                cached.enabled = true;
+            }
+
+            _navigator = cached;
         }
 
         public override void Enter()
@@ -122,12 +127,17 @@ namespace UncomplicatedCustomBots.API.Features.States
 
                 if (combatTarget != null && !inElevator)
                 {
-                    float distance = Vector3.Distance(Bot.Player.Position, combatTarget.Position);
+                    float sq = (Bot.Player.Position - combatTarget.Position).sqrMagnitude;
                     bool hasLineOfSight = HasLineOfSight(combatTarget);
+                    if (sq >= 625f)
+                    {
+                        hasLineOfSight = false;
+                    }
+
                     switch (Bot.Player.Role)
                     {
                         case RoleTypeId.Scp049:
-                            if (distance < 25f && hasLineOfSight)
+                            if (sq < 625f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp049State(Bot));
                                 return;
@@ -135,7 +145,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                             break;
 
                         case RoleTypeId.Scp106:
-                            if (distance < 25f && hasLineOfSight)
+                            if (sq < 625f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp106State(Bot));
                                 return;
@@ -143,7 +153,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                             break;
 
                         case RoleTypeId.Scp939:
-                            if (distance < 25f && hasLineOfSight)
+                            if (sq < 625f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp939State(Bot));
                                 return;
@@ -151,7 +161,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                             break;
 
                         case RoleTypeId.Scp173:
-                            if (distance < 25f && hasLineOfSight)
+                            if (sq < 625f && hasLineOfSight)
                             {
                                 Bot.ChangeState(new Scp173State(Bot));
                                 return;
@@ -160,7 +170,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
                         case RoleTypeId.Scp3114:
                             Scp3114Role scp3114 = (Bot.Player.RoleBase as Scp3114Role)!;
-                            if (distance < 25f && hasLineOfSight && !scp3114.Disguised)
+                            if (sq < 625f && hasLineOfSight && !scp3114.Disguised)
                             {
                                 Bot.ChangeState(new Scp3114State(Bot));
                                 return;
@@ -224,8 +234,7 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (scpTarget == null)
                 return null;
 
-            float distance = Vector3.Distance(Bot.Player.Position, scpTarget.Position);
-            if (distance < 15f && HasLineOfSight(scpTarget))
+            if ((Bot.Player.Position - scpTarget.Position).sqrMagnitude < 225f && HasLineOfSight(scpTarget))
                 return scpTarget;
 
             return null;
@@ -239,14 +248,16 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             Vector3 botPosition = Bot.Player.Position;
             Vector3 targetPosition = potentialTarget.Position;
-            float distance = Vector3.Distance(botPosition, targetPosition);
+            float sq = (botPosition - targetPosition).sqrMagnitude;
 
-            if (distance > _detectionRange)
+            if (sq > _detectionRange * _detectionRange)
                 return null;
 
             if (!IsTargetInFieldOfView(potentialTarget))
-                if (distance > 5f)
+            {
+                if (sq > 25f)
                     return null;
+            }
 
             if (HasLineOfSight(potentialTarget))
             {
@@ -255,9 +266,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                 return potentialTarget;
             }
 
-            if (_lastDetectedTarget == potentialTarget && Time.time - _lastDetectionTime < 2f && distance < _detectionRange * 0.7f)
+            float range07Sq = _detectionRange * 0.7f * _detectionRange * 0.7f;
+            if (_lastDetectedTarget == potentialTarget && Time.time - _lastDetectionTime < 2f && sq < range07Sq)
             {
-                TargetDetectedEventArgs detectedEventArgs = new(Bot, potentialTarget, distance, HasLineOfSight(potentialTarget));
+                float dist = Mathf.Sqrt(sq);
+                TargetDetectedEventArgs detectedEventArgs = new(Bot, potentialTarget, dist, HasLineOfSight(potentialTarget));
                 Events.Handlers.State.OnTargetDetected(detectedEventArgs);
                 return potentialTarget;
             }
@@ -314,11 +327,15 @@ namespace UncomplicatedCustomBots.API.Features.States
                     {
                         visiblePoints++;
                     }
-                    else if (Vector3.Distance(hit.point, point) < 0.8f)
+                    else if ((hit.point - point).sqrMagnitude < 0.64f)
+                    {
                         visiblePoints++;
+                    }
                 }
                 else
+                {
                     visiblePoints++;
+                }
             }
 
             return visiblePoints >= 2;
@@ -339,12 +356,11 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (leader == null || leader == Bot)
                 return false;
 
-            Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+            Navigation? leaderNav = leader.CachedNavigation;
             if (leaderNav == null || !leaderNav.IsNavigating || leaderNav.CurrentTarget == null)
                 return false;
 
-            float leaderDist = Vector3.Distance(Bot.Player.Position, leader.Player.Position);
-            if (leaderDist > 30f)
+            if ((Bot.Player.Position - leader.Player.Position).sqrMagnitude > 900f)
                 return false;
 
             if (_navigator.CurrentTarget == leaderNav.CurrentTarget && _navigator.CurrentPath.Count > 0 && _navigator.IsNavigating)
@@ -401,7 +417,11 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (squadRoom != null)
             {
-                LogManager.Debug($"{Bot.Player.Nickname} regrouping with squad towards {squadRoom.Name}");
+                if (Plugin.Instance.Config.Debug)
+                {
+                    LogManager.Debug($"{Bot.Player.Nickname} regrouping with squad towards {squadRoom.Name}");
+                }
+
                 _navigator.SetDestination(squadRoom);
                 _isWaiting = false;
                 return true;
@@ -419,11 +439,10 @@ namespace UncomplicatedCustomBots.API.Features.States
                     Bot? leader = SquadManager.GetSquadLeader(Bot);
                     if (leader != null)
                     {
-                        Navigation? leaderNav = leader.Player.GameObject?.GetComponent<Navigation>();
+                        Navigation? leaderNav = leader.CachedNavigation;
                         if (leaderNav != null && leaderNav.IsNavigating && leaderNav.CurrentTarget != null)
                         {
-                            float leaderDist = Vector3.Distance(Bot.Player.Position, leader.Player.Position);
-                            if (leaderDist <= 30f)
+                            if ((Bot.Player.Position - leader.Player.Position).sqrMagnitude <= 900f)
                             {
                                 if (_navigator.TryAdoptSquadWaypoints())
                                 {
@@ -466,7 +485,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                         if (Bot.IsInSquad && !SquadManager.IsSquadLeader(Bot))
                         {
                             Bot? leader = SquadManager.GetSquadLeader(Bot);
-                            Navigation? leaderNav = leader?.Player.GameObject?.GetComponent<Navigation>();
+                            Navigation? leaderNav = leader?.CachedNavigation;
                             if (leaderNav != null && leaderNav.IsNavigating && leaderNav.CurrentTarget != null)
                             {
                                 if (_navigator.TryAdoptSquadWaypoints())
@@ -522,7 +541,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 }
             }
 
-            if (foundGrenade && bestGrenade.Time > 0f && Vector3.Distance(Bot.Player.Position, bestGrenade.Position) < GrenadeFleeRange)
+            if (foundGrenade && bestGrenade.Time > 0f && (Bot.Player.Position - bestGrenade.Position).sqrMagnitude < GrenadeFleeRange * GrenadeFleeRange)
             {
                 Bot.ChangeState(new FleeState(Bot, bestGrenade.Position));
                 return;
@@ -542,9 +561,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                     isInteresting = e.Type == SensedEventType.Speaking || e.Type == SensedEventType.Gunshot || e.Type == SensedEventType.Tesla;
                 }
                 else
-                {
                     isInteresting = e.Type == SensedEventType.Gunshot || e.Type == SensedEventType.DoorOpen || e.Type == SensedEventType.Tesla || e.Type == SensedEventType.Speaking;
-                }
 
                 if (!isInteresting)
                     continue;
@@ -559,7 +576,7 @@ namespace UncomplicatedCustomBots.API.Features.States
                 }
             }
 
-            if (foundInteresting && bestInteresting.Time > 0f && Vector3.Distance(Bot.Player.Position, bestInteresting.Position) > 6f)
+            if (foundInteresting && bestInteresting.Time > 0f && (Bot.Player.Position - bestInteresting.Position).sqrMagnitude > 36f)
             {
                 Room? eventRoom = Room.GetRoomAtPosition(bestInteresting.Position);
                 if (eventRoom != null)
@@ -589,16 +606,20 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             Vector3 botPosition = Bot.Player.Position;
 
-            Pickup[] snapshot = Bot.BotDetectionRadius.PickupsInRange.ToArray();
-            int count = snapshot.Length;
+            List<Pickup> pickupsInRange = Bot.BotDetectionRadius.PickupsInRange;
+            int count = pickupsInRange.Count;
             if (count > _pickupSnapshotBuffer.Length)
             {
-                LogManager.Debug($"CheckForItems: {count} pickups in range, only processing {_pickupSnapshotBuffer.Length}");
+                if (Plugin.Instance.Config.Debug)
+                {
+                    LogManager.Debug($"CheckForItems: {count} pickups in range, only processing {_pickupSnapshotBuffer.Length}");
+                }
+
                 count = _pickupSnapshotBuffer.Length;
             }
                 
             for (int i = 0; i < count; i++)
-                _pickupSnapshotBuffer[i] = snapshot[i];
+                _pickupSnapshotBuffer[i] = pickupsInRange[i];
 
             for (int i = 0; i < count; i++)
             {
@@ -606,12 +627,11 @@ namespace UncomplicatedCustomBots.API.Features.States
                 if (item == null)
                     continue;
 
-                float distance = Vector3.Distance(botPosition, item.Position);
-
-                if (distance < 2f)
+                if ((botPosition - item.Position).sqrMagnitude < 4f)
                 {
                     if (Plugin.Instance.Config.AllowedPickupItems.Contains(item.Type))
                     {
+                        float distance = Vector3.Distance(botPosition, item.Position);
                         ItemCollectingEventArgs collectingargs = new(Bot, item, distance, true);
                         Events.Handlers.State.OnItemCollecting(collectingargs);
                         if (!collectingargs.IsAllowed)
@@ -644,6 +664,8 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         private static HashSet<string> _blacklistSet = [];
         private static int _blacklistGen = -1;
+        private static readonly List<Room> _candidatesScratch = [];
+        private static readonly List<Room> _fallbackScratch = [];
         private static Room? GetRandomUnblacklistedRoom()
         {
             List<string> blacklist = Plugin.Instance.Config.BlacklistedRooms;
@@ -653,8 +675,8 @@ namespace UncomplicatedCustomBots.API.Features.States
                 _blacklistGen = blacklist.Count;
             }
 
-            List<Room> candidates = [];
-            List<Room> fallback = [];
+            _candidatesScratch.Clear();
+            _fallbackScratch.Clear();
 
             foreach (Room room in Room.List)
             {
@@ -663,13 +685,15 @@ namespace UncomplicatedCustomBots.API.Features.States
 
                 if (room.Name == RoomName.Unnamed || room.Zone == FacilityZone.Other)
                 {
-                    fallback.Add(room);
+                    _fallbackScratch.Add(room);
                 }
                 else
-                    candidates.Add(room);
+                {
+                    _candidatesScratch.Add(room);
+                }
             }
 
-            List<Room> pool = candidates.Count > 0 ? candidates : fallback;
+            List<Room> pool = _candidatesScratch.Count > 0 ? _candidatesScratch : _fallbackScratch;
             if (pool.Count == 0)
                 return null;
 

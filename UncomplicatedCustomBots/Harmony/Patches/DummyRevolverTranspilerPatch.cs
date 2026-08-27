@@ -152,7 +152,7 @@ namespace UncomplicatedCustomBots.Harmony.Patches
 
             if (triggerPullField == null || resetMethod == null || triggerMethod == null || serverCooldownField == null)
             {
-                LogManager.Error("Could not find fields/methods for DoubleActionModule.Fire fix — skipping patch");
+                LogManager.Error("Could not find fields/methods for DoubleActionModule.Fire fix - skipping patch");
                 return codes;
             }
 
@@ -189,7 +189,7 @@ namespace UncomplicatedCustomBots.Harmony.Patches
             }
 
             if (!patched)
-                LogManager.Error("Failed to locate _serverShotCooldown.Trigger in DoubleActionModule.Fire — revolver click fix not applied");
+                LogManager.Error("Failed to locate _serverShotCooldown.Trigger in DoubleActionModule.Fire - revolver click fix not applied");
 
             return codes;
         }

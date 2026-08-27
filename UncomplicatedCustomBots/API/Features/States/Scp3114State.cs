@@ -50,9 +50,10 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Enter()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
             {
-                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator & !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
+                if (!nav.IsInsideElevatorChamber && !nav.IsWalkingIntoElevator && !nav.IsWaitingForElevator && !nav.IsWaitingToEnterElevator)
                 {
                     nav.StopNavigation();
                     nav.enabled = false;
@@ -68,8 +69,11 @@ namespace UncomplicatedCustomBots.API.Features.States
         {
             _stateStabilityTimer += Time.deltaTime;
 
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var elevatorNav) && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            Navigation? elevatorNav = Bot.CachedNavigation;
+            if (elevatorNav != null && (elevatorNav.IsInsideElevatorChamber || elevatorNav.IsWalkingIntoElevator || elevatorNav.IsWaitingForElevator || elevatorNav.IsWaitingToEnterElevator))
+            {
                 return;
+            }
 
             if (HandleRagdollBehavior())
                 return;
@@ -128,10 +132,8 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target == null) 
                 return;
 
-            float distanceToTarget = Vector3.Distance(Bot.Player.Position, _target.Position);
-
             Bot.MoveToOptimalDistance(_target, _optimalDistance, _tooCloseDistance, _combatSpeed);
-            if (distanceToTarget <= 2.8f && Bot.HasLineOfSight(_target, HitregMask) && !Bot.Player.HasEffect<Flashed>())
+            if ((Bot.Player.Position - _target.Position).sqrMagnitude <= 7.84f && Bot.HasLineOfSight(_target, HitregMask) && !Bot.Player.HasEffect<Flashed>())
                 HandleCombat();
         }
 
@@ -147,8 +149,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_isResurrecting)
             {
-                float distance = Vector3.Distance(Bot.Player.Position, _ragdollTarget.position);
-                if (distance > RESURRECT_DISTANCE + 1f)
+                if ((Bot.Player.Position - _ragdollTarget.position).sqrMagnitude > 9f)
                     return false;
 
                 if (Bot.Player.RoleBase is IFpcRole fpcRole)
@@ -170,9 +171,7 @@ namespace UncomplicatedCustomBots.API.Features.States
 
             if (_ragdollTarget != null)
             {
-                float distance = Vector3.Distance(Bot.Player.Position, _ragdollTarget.position);
-
-                if (distance <= RESURRECT_DISTANCE)
+                if ((Bot.Player.Position - _ragdollTarget.position).sqrMagnitude <= 4f)
                 {
                     BasicRagdoll ragdoll = _ragdollTarget.GetComponent<BasicRagdoll>();
                     ForceDisguise(disguiseModule, ragdoll);
@@ -209,10 +208,10 @@ namespace UncomplicatedCustomBots.API.Features.States
                 Collider collider = _ragdollOverlapBuffer[i];
                 if (collider.TryGetComponent<BasicRagdoll>(out var ragdoll) && ragdoll.Info.RoleType.GetTeam() != Team.SCPs)
                 {
-                    float distance = Vector3.Distance(Bot.Player.Position, collider.transform.position);
-                    if (distance < closestDistance)
+                    float sq = (Bot.Player.Position - collider.transform.position).sqrMagnitude;
+                    if (sq < closestDistance)
                     {
-                        closestDistance = distance;
+                        closestDistance = sq;
                         closestRagdoll = collider.transform;
                     }
                 }
@@ -226,11 +225,11 @@ namespace UncomplicatedCustomBots.API.Features.States
             if (_target == null || !_target.IsAlive)
                 return;
 
-            float distance = Vector3.Distance(Bot.Player.Position, _target.Position);
+            float sq = (Bot.Player.Position - _target.Position).sqrMagnitude;
             _fireTimer -= Time.deltaTime;
             if (_fireTimer <= 0f)
             {
-                if (distance <= .8f)
+                if (sq <= 0.64f)
                 {
                     BotExtensions.TryRunRoleAction(strangleModule, ActionName.Shoot, false);
                 }
@@ -243,8 +242,11 @@ namespace UncomplicatedCustomBots.API.Features.States
 
         public override void Exit()
         {
-            if (Bot.Player.GameObject!.TryGetComponent<Navigation>(out var nav))
+            Navigation? nav = Bot.CachedNavigation;
+            if (nav != null)
+            {
                 nav.enabled = true;
+            }
         }
     }
 }

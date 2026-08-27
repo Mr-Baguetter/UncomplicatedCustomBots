@@ -41,8 +41,45 @@ namespace UncomplicatedCustomBots.Events.Internal
 
         public static void OnPlayerSpawned(PlayerSpawnedEventArgs ev)
         {
+            Bot.EnsureGlobalCollisionsIgnored();
+
+            if (ev.Player != null && !ev.Player.IsBot() && !ev.Player.IsDestroyed)
+            {
+                Bot[] bots = Bot.SnapshotBotList();
+                Timing.CallDelayed(0.5f, () =>
+                {
+                    if (ev.Player?.GameObject == null)
+                        return;
+
+                    UnityEngine.Collider[] playerColliders = ev.Player.GameObject.GetComponentsInChildren<UnityEngine.Collider>(true);
+                    foreach (Bot bot in bots)
+                    {
+                        if (bot?.Player?.GameObject == null)
+                            continue;
+
+                        UnityEngine.Collider[] botColliders = bot.Player.GameObject.GetComponentsInChildren<UnityEngine.Collider>(true);
+                        foreach (UnityEngine.Collider a in playerColliders)
+                        {
+                            if (a == null)
+                                continue;
+
+                            foreach (UnityEngine.Collider b in botColliders)
+                            {
+                                if (b == null)
+                                    continue;
+
+                                UnityEngine.Physics.IgnoreCollision(a, b, true);
+                            }
+                        }
+                    }
+                });
+            }
+
             Timing.CallDelayed(Timing.WaitForOneFrame, () =>
             {
+                if (ev.Player == null || ev.Player.IsDestroyed)
+                    return;
+
                 Bot[] snapshot = Bot.SnapshotBotList();
                 foreach (Bot bot in snapshot)
                 {
@@ -55,6 +92,7 @@ namespace UncomplicatedCustomBots.Events.Internal
                     if (bot.IsSquadBot)
                         SquadManager.AssignToSquad(bot);
                 }
+                
                 if (ev.Player.IsBot() && !Plugin.Instance.Config.AllowScps && ev.Player.Team == Team.SCPs)
                     ev.Player.SetRole(RoleTypeId.ClassD, RoleChangeReason.RoundStart);
             });
@@ -70,6 +108,43 @@ namespace UncomplicatedCustomBots.Events.Internal
 
         public static void OnPlayerJoined(PlayerJoinedEventArgs ev)
         {
+            Bot.EnsureGlobalCollisionsIgnored();
+
+            if (!ev.Player.IsDestroyed)
+            {
+                Bot[] bots = Bot.SnapshotBotList();
+                Timing.CallDelayed(0.5f, () =>
+                {
+                    if (ev.Player?.GameObject == null)
+                        return;
+
+                    UnityEngine.Collider[] playerColliders = ev.Player.GameObject.GetComponentsInChildren<UnityEngine.Collider>(true);
+                    foreach (Bot bot in bots)
+                    {
+                        if (bot?.Player?.GameObject == null)
+                            continue;
+
+                        UnityEngine.Collider[] botColliders = bot.Player.GameObject.GetComponentsInChildren<UnityEngine.Collider>(true);
+                        foreach (UnityEngine.Collider a in playerColliders)
+                        {
+                            if (a == null)
+                                continue;
+
+                            foreach (UnityEngine.Collider b in botColliders)
+                            {
+                                if (b == null)
+                                    continue;
+
+                                UnityEngine.Physics.IgnoreCollision(a, b, true);
+                            }
+                        }
+                    }
+                });
+            }
+
+            if (ev.Player == null || ev.Player.IsDestroyed)
+                return;
+
             if (!Plugin.Instance.Config.NewPlayersReplaceBots)
                 return;
 
